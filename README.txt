@@ -1,3 +1,44 @@
+YU-GI-OH! RANDOM DECK GENERATOR — QUICK START
+===========================================
+
+TWO WAYS TO USE THE GENERATOR
+-----------------------------
+ONLINE WEBSITE
+  When the public site is available, visit its URL (to be added to README.md).
+  Pick Theme 1 and Theme 2, Main/Extra Deck sizes, and optionally paste a seed.
+  Press Generate Deck. Open Advanced Settings for support, allocation, banlist,
+  ratings and other options. The browser supports PNG, YDK and TXT exports.
+  The website runs in your browser; no Python installation is required.
+
+OFFLINE WINDOWS DESKTOP PROGRAM
+  Extract the whole project, install Python 3.10+ (Python 3.12 recommended),
+  and double-click "Yu-Gi-Oh Randomizer.pyw". Keep program/data and
+  forbidden lists with the launcher. Once installed with its local data,
+  generating decks does not require an internet connection. Updating cards
+  and banlists does require internet access.
+
+LOCAL BROWSER VERSION (OPTIONAL)
+  From the extracted project folder, run:
+    python -m pip install -r web/requirements.txt
+    python web/app.py
+  Then visit http://127.0.0.1:8000 in your browser.
+  Card images may require internet access the first time they are loaded.
+
+WEB VERSION DEFAULTS
+  Main Deck: 60       Theme: 50%     Support: 30%     Generic: 20%
+  Monsters: 30        Spells: 20     Traps: 10
+  Rating: 3 to 5      Auto select support categories: checked
+  Seed: leave blank for random, or paste a known seed to recreate a deck
+  using the same settings and card database.
+
+For the GitHub front page, online link, and web instructions, see README.md.
+For Render hosting instructions, see WEB_HOSTING_README.md.
+
+--------------------------------------------------------------------------
+
+DETAILED DESKTOP REFERENCE
+==========================
+
 YU-GI-OH! RANDOM DECK GENERATOR
 ================================
 Double-click "Yu-Gi-Oh Randomizer.pyw" to open the window.
