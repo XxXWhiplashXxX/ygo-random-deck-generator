@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: ygo-random-deck-generator
+    runtime: python
+    plan: free
+    buildCommand: pip install -r web/requirements.txt
+    startCommand: python web/start.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.9

@@ -1,11 +1,11 @@
 """Browser interface for the existing Yu-Gi-Oh! deck engine. Run: python web/app.py"""
-import io
+import os
+import time
 import random
 import sys
 import threading
 import urllib.request
 from collections import Counter
-from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -24,6 +24,12 @@ from ygo_final import build_deck
 from ygo_labels import load_labels
 
 app = FastAPI(title='Yu-Gi-Oh! Random Deck Generator')
+# Set IMAGE_CACHE_DIR to a persistent disk mount on a public host.
+IMAGE_CACHE_DIR = Path(os.environ.get('IMAGE_CACHE_DIR', str(ROOT / 'web/image_cache')))
+IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+image_fetch_lock = threading.Lock()
+last_image_fetch = 0.0
+
 lock = threading.Lock()  # The original Builder keeps per-format mutable caches.
 engine = None
 
@@ -85,21 +91,46 @@ def card_image(card_id: str):
     if not card_id.isdigit() or len(card_id) > 12:
         raise HTTPException(400, 'Invalid card ID')
     try:
-        return Response(fetch_image(card_id), media_type='image/jpeg', headers={'Cache-Control':'public, max-age=86400'})
+        return FileResponse(cached_image_path(card_id), media_type='image/jpeg', headers={'Cache-Control':'public, max-age=604800'})
     except Exception:
         raise HTTPException(404, 'Card image unavailable')
 
-@lru_cache(maxsize=1024)
-def fetch_image(card_id):
-    # Proxy/caches artwork so browser canvas can export PNG without cross-origin errors.
-    req = urllib.request.Request(f'https://images.ygoprodeck.com/images/cards_small/{card_id}.jpg',
-                                 headers={'User-Agent': 'YgoRandomizerWeb/1.0'})
-    with urllib.request.urlopen(req, timeout=12) as response:
-        data = response.read(200_000)
-        if response.status != 200 or not response.headers.get('Content-Type','').startswith('image/'):
-            raise ValueError('Invalid image response')
-        return data
+def cached_image_path(card_id: str) -> Path:
+    """Fetch an image only once into a local cache, then serve the saved copy.
+
+    IMPORTANT: On Render free hosting, local storage is ephemeral. Set IMAGE_CACHE_DIR
+    to a persistent disk or deploy images from durable storage before going public.
+    """
+    global last_image_fetch
+    path = IMAGE_CACHE_DIR / f'{card_id}.jpg'
+    if path.is_file() and path.stat().st_size > 0:
+        return path
+    # Serialize downloads to avoid concurrent duplicate requests or bursts to YGOPRODeck.
+    with image_fetch_lock:
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+        # Keep requests slow even if a deck has many uncached images.
+        time.sleep(max(0.0, 0.5 - (time.monotonic() - last_image_fetch)))
+        last_image_fetch = time.monotonic()
+        req = urllib.request.Request(
+            f'https://images.ygoprodeck.com/images/cards_small/{card_id}.jpg',
+            headers={'User-Agent': 'YgoRandomizerWeb/1.0'})
+        with urllib.request.urlopen(req, timeout=12) as response:
+            if response.status != 200 or not response.headers.get('Content-Type', '').startswith('image/'):
+                raise ValueError('Invalid image response')
+            data = response.read(300_001)
+            if len(data) > 300_000 or not data.startswith(b'\xff\xd8\xff'):
+                raise ValueError('Invalid JPEG data')
+        temp = path.with_suffix('.tmp')
+        try:
+            temp.write_bytes(data)
+            temp.replace(path)
+        finally:
+            temp.unlink(missing_ok=True)
+        return path
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run(app, host='127.0.0.1', port=8000)
+    # Works locally and on Render without relying on shell substitution of $PORT.
+    uvicorn.run(app, host=os.environ.get('HOST', '127.0.0.1'),
+                port=int(os.environ.get('PORT') or '8000'))
