@@ -1,0 +1,135 @@
+Label,strictSupports,generalSupports,strictSupportedBy,generalSupportedBy,Notes
+Self = Tribute Summon,TRUE,FALSE,TRUE,TRUE,Tribute summoning is a mechanic not all decks do
+Self = Tribute,TRUE,FALSE,TRUE,TRUE,Not a mechanic all decks do
+Self = Dice Roll,TRUE,FALSE,TRUE,TRUE,Not a mechanic all decks do
+Self = Coin Flip,TRUE,FALSE,TRUE,TRUE,Not a mechanic all decks do
+Self = Banish,TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish (Effect),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish (Hand),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish (Hand) (Effect),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish (Deck),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish (Deck) (Effect),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish (Field),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish (Field) (Effect),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish (GY),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish (GY) (Effect),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish Face-Down,TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish Face-Down (Hand),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish Face-Down (Hand) (Effect),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish Face-Down (Deck),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish Face-Down (Deck) (Effect),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish Face-Down (Field),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish Face-Down (Field) (Effect),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish Face-Down (GY),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Banish Face-Down (GY) (Effect),TRUE,FALSE,TRUE,FALSE,Not all cards benefit from being banished
+Self = Discard,FALSE,TRUE,TRUE,FALSE,Most cards and decks benefit from discarding cards
+Self = Discard (effect),FALSE,TRUE,TRUE,FALSE,Most cards and decks benefit from discarding cards
+Self = Gain LP,FALSE,TRUE,TRUE,FALSE,Most decks benefit from life gain
+Self = Draw,FALSE,TRUE,FALSE,TRUE,Most decks benefit from drawing
+Self = Flip,FALSE,TRUE,FALSE,TRUE,Most decks do benefit from flipping face down
+Self = add from deck to hand,FALSE,TRUE,TRUE,FALSE,Most decks benefit from adding to hand
+Self = Destroy (Hand),FALSE,TRUE,TRUE,FALSE,Most cards benefit from destruction
+Self = Destroy (Field),FALSE,TRUE,TRUE,FALSE,Most cards benefit from destruction
+Self = Destroy,FALSE,TRUE,TRUE,FALSE,Most cards benefit from destruction
+Self = Self-Mill,FALSE,TRUE,TRUE,FALSE,Most cards benefit from self-mill
+Self = self-bounce,FALSE,TRUE,TRUE,FALSE,Most cards benefit from self-bounce
+Self = Shuffle into deck (From Field),TRUE,FALSE,TRUE,FALSE,Most cards don’t want to be in deck from field
+Self = Shuffle into deck (From Hand),TRUE,FALSE,TRUE,FALSE,Most cards don’t want to be in deck from hand
+Self = Shuffle into deck (From GY),FALSE,TRUE,TRUE,FALSE,returning from grave to deck helps in random format
+Self = Shuffle into deck ,TRUE,FALSE,TRUE,FALSE,Most cards don’t want to be in deck 
+Self = Token,FALSE,TRUE,TRUE,FALSE,"Tokens are good in general, but most decks don’t beenfit from generic token support"
+Self = Send to GY,FALSE,TRUE,TRUE,FALSE,Most cards benefit from dying
+Self = Send to GY (field),FALSE,TRUE,TRUE,FALSE,Most cards benefit from dying
+Self = Send to GY (Field) (Effect),FALSE,TRUE,TRUE,FALSE,Most cards benefit from dying
+Self = Send to GY (Deck),FALSE,TRUE,TRUE,FALSE,Most cards benefit from dying
+Self = Send to GY (Deck) (Effect),FALSE,TRUE,TRUE,FALSE,Most cards benefit from dying
+Self = Send to GY (Hand),FALSE,TRUE,TRUE,FALSE,Most cards benefit from dying
+Self = send to GY (Hand) (Effect),FALSE,TRUE,TRUE,FALSE,Most cards benefit from dying
+Self = Monster in S/T Zone,TRUE,FALSE,TRUE,FALSE,Most cards do not benefit frombeing in s/t zone
+Self = Cannot be destroyed,FALSE,TRUE,FALSE,TRUE,Most cards benefit from buffs
+Self = Cannot be destroyed by Card effects,FALSE,TRUE,FALSE,TRUE,Most cards benefit from buffs
+Self = Cannot be destroyed by battle,FALSE,TRUE,FALSE,TRUE,Most cards benefit from buffs
+Self = Cannot be targeted,FALSE,TRUE,FALSE,TRUE,Most cards benefit from buffs
+Self = Uneffected by Card Effects,FALSE,TRUE,FALSE,TRUE,Most cards benefit from buffs
+Self = Gain ATK,FALSE,TRUE,FALSE,TRUE,Most cards benefit from buffs
+Self = Gain DEF,FALSE,TRUE,FALSE,TRUE,Most cards benefit from buffs
+Self = Move Columns,FALSE,TRUE,TRUE,FALSE,Most cards benefit from buffs
+Self = Give,FALSE,TRUE,TRUE,FALSE,Most cards do not benefit from being given to oppoennt
+Self = Special Summon,FALSE,TRUE,FALSE,TRUE,Special summoning is always beneificial
+Self = Normal Summon,FALSE,TRUE,FALSE,TRUE,Normal summoning is always beneificial
+Self = Special Summon (Deck),FALSE,TRUE,FALSE,TRUE,Special summoning is always beneificial
+Self = Special Summon (GY),FALSE,TRUE,FALSE,TRUE,Special summoning is always beneificial
+Self = Special Summon (Hand),FALSE,TRUE,FALSE,TRUE,Special summoning is always beneificial
+Opponent = prevent attacks,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Destroys monster by Battle,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = inflicts battle damage to your opponent,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Steal,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Burn,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Flip,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Mill,TRUE,FALSE,TRUE,FALSE,Only good in mill
+Opponent = Draw,TRUE,FALSE,TRUE,FALSE,Only good in mill
+Opponent = Lose ATK,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Lose DEF,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Negation,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Tribute,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Discard,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Give Life,TRUE,FALSE,TRUE,FALSE,Only good in reverse burn
+Opponent = Reverse Burn,TRUE,FALSE,TRUE,FALSE,Only good in reverse burn
+Opponent = Shuffle into deck,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Bounce,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Destroy,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Self = Special Summon (Extra Deck),FALSE,TRUE,FALSE,TRUE,Special summoning is always beneficial
+Self = Special Summon (Banished),FALSE,TRUE,FALSE,TRUE,Special summoning is always beneficial
+Self = add from GY to hand,FALSE,TRUE,TRUE,FALSE,Most decks benefit from adding to hand
+Self = add from banished to hand,FALSE,TRUE,TRUE,FALSE,Most decks benefit from adding to hand
+Self = Flip Summon,FALSE,TRUE,FALSE,TRUE,Flip summoning is generally beneficial
+Self = Fusion Summon,TRUE,FALSE,TRUE,TRUE,Procedure summoning is a mechanic not all decks do
+Self = Contact Fusion,TRUE,FALSE,TRUE,TRUE,Procedure summoning is a mechanic not all decks do
+Self = Ritual Summon,TRUE,FALSE,TRUE,TRUE,Procedure summoning is a mechanic not all decks do
+Self = Synchro Summon,TRUE,FALSE,TRUE,TRUE,Procedure summoning is a mechanic not all decks do
+Self = Xyz Summon,TRUE,FALSE,TRUE,TRUE,Procedure summoning is a mechanic not all decks do
+Self = Link Summon,TRUE,FALSE,TRUE,TRUE,Procedure summoning is a mechanic not all decks do
+Self = Pendulum Summon,TRUE,FALSE,TRUE,TRUE,Procedure summoning is a mechanic not all decks do
+Self = Send to GY (Extra Deck),FALSE,TRUE,TRUE,FALSE,Most cards benefit from dying
+Self = Place on top of Deck,TRUE,FALSE,TRUE,FALSE,Most cards don't want to be in deck
+Self = Place on bottom of Deck,TRUE,FALSE,TRUE,FALSE,Most cards don't want to be in deck
+Self = Set Monster,FALSE,TRUE,TRUE,FALSE,Setting cards is generally neutral (CHECK flags: copied from Self = Discard)
+Self = Set Spell/Trap,FALSE,TRUE,TRUE,FALSE,Setting cards is generally neutral (CHECK flags: copied from Self = Discard)
+Self = Set from Deck,FALSE,TRUE,TRUE,FALSE,Setting cards is generally neutral (CHECK flags: copied from Self = Discard)
+Self = Place in Pendulum Scale,TRUE,FALSE,TRUE,TRUE,Only Pendulum decks want this (CHECK flags: copied from Self = Tribute Summon)
+Self = Place in Field Zone,TRUE,FALSE,TRUE,FALSE,Not all decks use Field Spells (CHECK flags: copied from Self = Banish)
+Self = Reveal,FALSE,TRUE,TRUE,FALSE,Revealing is a generic cost (CHECK flags: copied from Self = Discard)
+Self = Excavate,FALSE,TRUE,TRUE,FALSE,Excavating helps most decks (CHECK flags: copied from Self = Self-Mill)
+Self = Pay LP,FALSE,FALSE,FALSE,TRUE,Life Point payment is a generic cost (CHECK flags)
+Self = Place counters,TRUE,FALSE,TRUE,TRUE,Counters are a mechanic not all decks use (CHECK flags: copied from Self = Tribute Summon)
+Self = Remove counters,TRUE,FALSE,TRUE,TRUE,Counters are a mechanic not all decks use (CHECK flags: copied from Self = Tribute Summon)
+Self = Equip,TRUE,FALSE,TRUE,TRUE,Not all decks use equip cards (CHECK flags: copied from Self = Tribute Summon)
+Self = Union Equip,TRUE,FALSE,TRUE,TRUE,Not all decks use Union monsters (CHECK flags: copied from Self = Tribute Summon)
+Self = Direct attack,FALSE,TRUE,FALSE,TRUE,Most cards benefit from this (CHECK flags: copied from Self = Gain ATK)
+Self = Piercing battle damage,FALSE,TRUE,FALSE,TRUE,Most cards benefit from this (CHECK flags: copied from Self = Gain ATK)
+Self = Multi-attack,FALSE,TRUE,FALSE,TRUE,Most cards benefit from this (CHECK flags: copied from Self = Gain ATK)
+Self = Change battle position,FALSE,TRUE,FALSE,TRUE,Position changes are generally neutral (CHECK flags: copied from Self = Flip)
+Opponent = Force attack,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Negate Summon,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Self = Detach Xyz Material,TRUE,FALSE,TRUE,TRUE,Xyz decks detach materials as a cost; not a mechanic all decks do (CHECK flags: copied from Self = Tribute)
+Self = Attach Xyz Material,TRUE,FALSE,TRUE,TRUE,Attaching materials only matters to Xyz decks (CHECK flags: copied from Self = Tribute)
+Self = Change Level,FALSE,TRUE,FALSE,TRUE,Level changes help many decks (CHECK flags: copied from Self = Gain ATK)
+Self = Return to Extra Deck,FALSE,TRUE,TRUE,FALSE,Returning an Extra Deck monster is generally neutral (CHECK flags: copied from Self = Send to GY (Deck))
+Self = Cannot be targeted for attacks,FALSE,TRUE,FALSE,TRUE,Most cards benefit from buffs
+Opponent = Banish,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Send to GY,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Change battle position,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Negate attack,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Opponent = Prevent activation,FALSE,TRUE,FALSE,TRUE,Doing things to opponent is generally generic
+Floodgate = Search,FALSE,TRUE,FALSE,FALSE,Stops adding cards from the Deck (Mistake; Droll & Lock Bird)
+Floodgate = Special Summon,FALSE,TRUE,FALSE,FALSE,Stops or limits Special Summons (Vanity's Fiend; Royal Prison; Summon Limit)
+Floodgate = Normal Summon,FALSE,TRUE,FALSE,FALSE,Stops or limits Normal Summons and Sets (Quiet Life; Light of Intervention)
+Floodgate = Activation,FALSE,TRUE,FALSE,FALSE,Stops activating cards or effects (Majesty's Fiend; Lightning Rod Lord; Prohibition)
+Floodgate = Attack,FALSE,TRUE,FALSE,FALSE,Stops or limits attacks and the Battle Phase (Gora Turtle; The Dark Door; D.D. Borderline)
+Floodgate = Position,FALSE,TRUE,FALSE,FALSE,Forces or locks battle positions (Stumbling; Final Attack Orders; Spider Web)
+Floodgate = Zones,FALSE,TRUE,FALSE,FALSE,Blocks zones or limits cards on the field (Ground Collapse; Ojama King; Spatial Collapse)
+Floodgate = Graveyard,FALSE,TRUE,FALSE,FALSE,Stops cards going to or leaving the GY or Deck (Dimension Fortress Weapon; G.B. Hunter; Transmigration Break)
+Floodgate = Tribute,FALSE,TRUE,FALSE,FALSE,Stops Tributing (Mask of Restrict; Spellbound)
+Floodgate = Hand,FALSE,TRUE,FALSE,FALSE,Hand size or revealed hands (Infinite Cards; Ceremonial Bell; Enervating Mist)
+Floodgate = Burn,FALSE,TRUE,FALSE,FALSE,Damages both players for playing cards (Chain Burst; Curse of Darkness; Dark Snake Syndrome)
+Floodgate = Rules,FALSE,TRUE,FALSE,FALSE,Changes a game rule (DNA Surgery; Temple of the Mind's Eye; Terminal World)

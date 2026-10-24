@@ -1,0 +1,74 @@
+Parent,Child
+Self = Banish,Self = Banish (Effect)
+Self = Banish,Self = Banish Face-Down
+Self = Banish,Self = Banish (Hand)
+Self = Banish,Self = Banish (Deck)
+Self = Banish,Self = Banish (Field)
+Self = Banish,Self = Banish (GY)
+Self = Banish (Hand),Self = Banish (Hand) (Effect)
+Self = Banish (Effect),Self = Banish (Hand) (Effect)
+Self = Banish (Deck),Self = Banish (Deck) (Effect)
+Self = Banish (Effect),Self = Banish (Deck) (Effect)
+Self = Banish (Field),Self = Banish (Field) (Effect)
+Self = Banish (Effect),Self = Banish (Field) (Effect)
+Self = Banish (GY),Self = Banish (GY) (Effect)
+Self = Banish (Effect),Self = Banish (GY) (Effect)
+Self = Banish Face-Down,Self = Banish Face-Down (Hand)
+Self = Banish Face-Down,Self = Banish Face-Down (Deck)
+Self = Banish Face-Down,Self = Banish Face-Down (Field)
+Self = Banish Face-Down,Self = Banish Face-Down (GY)
+Self = Banish Face-Down (Hand),Self = Banish Face-Down (Hand) (Effect)
+Self = Banish (Hand),Self = Banish Face-Down (Hand)
+Self = Banish (Hand) (Effect),Self = Banish Face-Down (Hand) (Effect)
+Self = Banish Face-Down (Deck),Self = Banish Face-Down (Deck) (Effect)
+Self = Banish (Deck),Self = Banish Face-Down (Deck)
+Self = Banish (Deck) (Effect),Self = Banish Face-Down (Deck) (Effect)
+Self = Banish Face-Down (Field),Self = Banish Face-Down (Field) (Effect)
+Self = Banish (Field),Self = Banish Face-Down (Field)
+Self = Banish (Field) (Effect),Self = Banish Face-Down (Field) (Effect)
+Self = Banish Face-Down (GY),Self = Banish Face-Down (GY) (Effect)
+Self = Banish (GY),Self = Banish Face-Down (GY)
+Self = Banish (GY) (Effect),Self = Banish Face-Down (GY) (Effect)
+Self = Send to GY,Self = Send to GY (field)
+Self = Send to GY,Self = Send to GY (Deck)
+Self = Send to GY,Self = Send to GY (Hand)
+Self = Send to GY,Self = Send to GY (Extra Deck)
+Self = Send to GY (field),Self = Send to GY (Field) (Effect)
+Self = Send to GY (Deck),Self = Send to GY (Deck) (Effect)
+Self = Send to GY (Deck),Self = Self-Mill
+Self = Send to GY (Hand),Self = send to GY (Hand) (Effect)
+Self = Send to GY (Hand),Self = Discard
+Self = Discard,Self = Discard (effect)
+Self = send to GY (Hand) (Effect),Self = Discard (effect)
+Self = Destroy,Self = Destroy (Hand)
+Self = Destroy,Self = Destroy (Field)
+Self = Send to GY,Self = Destroy
+Self = Send to GY (field),Self = Destroy (Field)
+Self = Send to GY (field),Self = Tribute
+Self = Send to GY (Hand),Self = Destroy (Hand)
+Opponent = Send to GY,Opponent = Destroy
+Opponent = Send to GY,Opponent = Tribute
+Self = Special Summon,Self = Special Summon (Deck)
+Self = Special Summon,Self = Special Summon (GY)
+Self = Special Summon,Self = Special Summon (Hand)
+Self = Special Summon,Self = Special Summon (Extra Deck)
+Self = Special Summon,Self = Special Summon (Banished)
+Self = Special Summon,Self = Token
+Self = Special Summon,Self = Fusion Summon
+Self = Special Summon,Self = Ritual Summon
+Self = Special Summon,Self = Synchro Summon
+Self = Special Summon,Self = Xyz Summon
+Self = Special Summon,Self = Link Summon
+Self = Special Summon,Self = Pendulum Summon
+Self = Fusion Summon,Self = Contact Fusion
+Self = Normal Summon,Self = Tribute Summon
+Self = Flip,Self = Flip Summon
+Self = add from deck to hand,Self = Draw
+Self = Shuffle into deck,Self = Shuffle into deck (From Field)
+Self = Shuffle into deck,Self = Shuffle into deck (From Hand)
+Self = Shuffle into deck,Self = Shuffle into deck (From GY)
+Self = Cannot be destroyed,Self = Cannot be destroyed by Card effects
+Self = Cannot be destroyed,Self = Cannot be destroyed by battle
+Opponent = Negation,Opponent = Negate Summon
+Opponent = Negation,Opponent = Negate attack
+Self = Equip,Self = Union Equip
