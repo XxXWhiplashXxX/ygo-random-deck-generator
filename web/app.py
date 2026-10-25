@@ -80,12 +80,26 @@ def generate(data: GenerateInput):
         raise HTTPException(400, 'Extra Deck percentages must be numbers.')
     if any(x < 0 or x > 100 for x in percentages) or sum(percentages) != 100:
         raise HTTPException(400, 'Extra Deck percentages must total 100%.')
+    # The web interface controls percentages, not the legacy type on/off switches.
+    settings['rand_extra_types'] = False
     for k, v in zip(('allow_fusion', 'allow_synchro', 'allow_xyz', 'allow_link'), percentages):
         settings[k] = v > 0
-    settings['rand_extra_types'] = False   # Website sliders supersede the old random on/off switches.
     S.roll(settings, random.Random())
     try:
         req = S.make_request(settings, banlists=list(load_banlists(P.FORBIDDEN)))
+        if settings.get('rand_extra_ratios', False):
+            # Derive the ratios from the actual generation seed so pasting that seed
+            # reproduces the same four percentages and deck (given the same settings).
+            rng = random.Random(f'{req.seed}-extra-ratios')
+            cuts = sorted([0, 100, rng.randint(0, 100), rng.randint(0, 100), rng.randint(0, 100)])
+            percentages = [cuts[i + 1] - cuts[i] for i in range(4)]
+            for k, value in zip(type_keys, percentages):
+                settings[k] = value
+            # Make a newly rolled seed visible for copying and rerunning later.
+            settings['seed'] = str(req.seed)
+            req = S.make_request(settings, banlists=list(load_banlists(P.FORBIDDEN)))
+        for k, v in zip(('allow_fusion', 'allow_synchro', 'allow_xyz', 'allow_link'), percentages):
+            settings[k] = v > 0
         with lock:
             deck = build_deck(*get_engine(), req)
     except Exception as exc:

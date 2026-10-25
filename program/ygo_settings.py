@@ -34,7 +34,7 @@ def defaults() -> dict:
         "max_era": "GO RUSH!!", "rand_era": False,
         "min_rating": "2", "max_rating": "5", "rand_rating": False,
         "allow_fusion": True, "allow_synchro": True, "allow_xyz": True, "allow_link": True, "rand_extra_types": False,
-        "extra_fusion_pct": 25, "extra_synchro_pct": 25, "extra_xyz_pct": 25, "extra_link_pct": 25,
+        "extra_fusion_pct": 25, "extra_synchro_pct": 25, "extra_xyz_pct": 25, "extra_link_pct": 25, "rand_extra_ratios": False,
         "extra_match_main_ratio": True,
         "banlist": UNLIMITED, "date_pool": True,                           # format: Forbidden List, release-date card pool
         "deck_type_overall_pct": 60, "support_overall_pct": 40, "generic_overall_pct": 0, "rand_theme_support": False,

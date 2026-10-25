@@ -79,7 +79,7 @@ async function init(){const res=await fetch('/api/options');if(!res.ok)throw Err
   const desired={main_size:60,monster_target:30,spell_target:20,trap_target:10,
     min_rating:2,max_rating:5,deck_type_overall_pct:50,
     support_overall_pct:30,generic_overall_pct:20,support_on:true,allow_normals:false,
-    extra_match_main_ratio:true,extra_fusion_pct:25,extra_synchro_pct:25,extra_xyz_pct:25,extra_link_pct:25};
+    extra_match_main_ratio:true,rand_extra_ratios:false,extra_fusion_pct:25,extra_synchro_pct:25,extra_xyz_pct:25,extra_link_pct:25};
   for(const [k,v] of Object.entries(desired))put(k,v);
   sync();}
 form.addEventListener('input',e=>{
