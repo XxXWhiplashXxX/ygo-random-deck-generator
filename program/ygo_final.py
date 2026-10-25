@@ -42,6 +42,7 @@ from ygo_data import card_matches, is_mechanic, need_status, norm, read_csv, loa
 from ygo_builder import Builder, Entry, Info, Request, State, FLOODGATE_RULES, CLASH_SHARE, BROAD_SHARE
 from ygo_extra import ExtraBuilder, FULL_SCORE, generate_state, summon_score, sums_ok, substitute_limit, named_slot
 from ygo_names import NameResolver
+from ygo_fusion_searchers import RESTRICTIONS as ARCHETYPE_LOCKED_FUSION_SEARCHERS
 
 STARTERS = 8                  # a deck wants at least this many Level 4-or-lower monsters (fewer if it has few monsters)
 DROP_BELOW = 0.6              # Extra Deck cards the main deck can fill less than this share of materials for are dropped
@@ -849,6 +850,22 @@ REPAIR_FROM = ("generic", "staple", "support2", "support1")   # which cards a re
 def strict_need_ok(builder: Builder, c: Info, deck: State, extra_infos: list) -> bool:
     """True if the card has no strict need, or one of its strictSupportedBy branches is met:
        the TRAIT part by another card in the main or Extra Deck, and no MECHANIC part 'unmet'."""
+    # Some searchers mention Polymerization, but the effect only works with their
+    # own archetype.  The parser can mistake the named card for a complete support
+    # relationship (or offer an alternate Fusion Summon branch). Treat the actual
+    # archetype requirement as mandatory, even with an older cards.csv file.
+    # This is checked by mention selection AND by the final deck validation.
+    restriction = ARCHETYPE_LOCKED_FUSION_SEARCHERS.get(c.name)
+    if restriction:
+        others = [o for o in list(deck.unique.values()) + extra_infos if o.name != c.name]
+        permitted = {a.value for branch in parse_expr(restriction) for a in branch if a.field == "archetype" and a.op == "="}
+        # The generated archetype column also lists archetypes that a card
+        # SUPPORTS. Polymerization therefore carries "melodious", "amazoness",
+        # etc., even though it is not a member of those themes. Use the actual
+        # card name for these named archetype requirements instead.
+        if not any(any(arche in norm(o.name) for arche in permitted) for o in others):
+            return False
+
     branches = parse_expr(c.row.get("strictSupportedBy", ""))
     if not branches or not c.needs:                                         # no strict need (or flavour text the builder ignores)
         return True

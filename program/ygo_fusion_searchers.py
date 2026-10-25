@@ -32,13 +32,25 @@ def apply(rows):
         prior = (row.get("strictSupportedBy") or "").strip()
         if prior != require and not prior.startswith("(" + require + ") &&"):
             row["strictSupportedBy"] = f"({require}) && ({prior})" if prior else require
-        # Remove only unrestricted Polymerization support branches; all other
-        # actions and archetype-specific support expressions stay intact.
+        # Searching Polymerization is a conditional effect, not a separate
+        # unconditional way to support a deck. Couple this specific support
+        # branch to the required archetype using AND (never OR).
         branches = [part.strip() for part in (row.get("strictSupports") or "").split(" || ")]
-        row["strictSupports"] = " || ".join(
-            (f"({require}) && Archetype = Polymerization" if b.lower() == "archetype = polymerization" else b)
-            for b in branches if b
-        )
+        poly = "Archetype = Polymerization"
+        if any(branch.lower() == poly.lower() for branch in branches):
+            branches = [branch for branch in branches if branch.lower() != poly.lower()]
+            if name == "Tamtam the Melodious Diva":
+                # Tamtam's Polymerization search requires a Melodious monster.
+                # Combine the two branches, rather than leaving the Melodious
+                # monster as an independent alternative to Polymerization.
+                melodic = "(Archetype = Melodious && Card Type = Monster)"
+                branches = [branch for branch in branches if branch != melodic]
+                branches.insert(0, f"({poly} && {melodic})")
+            else:
+                # Preserve unrelated effects, but never let the Poly search
+                # count as support outside this card's archetype.
+                branches.append(f"({poly} && {require})")
+            row["strictSupports"] = " || ".join(branches)
         touched.append(name)
     return touched
 
