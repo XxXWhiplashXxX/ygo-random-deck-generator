@@ -739,10 +739,32 @@ class Builder:
             w *= 2.0 if have < share * self.level_target else 0.1                   # still short -> likelier; full -> rarer
         return w
 
+    @staticmethod
+    def strong_normal(info: Info) -> bool:
+        """Independent high-stat Normal Monsters remain eligible even with outside-theme Normals disabled.
+
+        Levels 1-4: 1900+ ATK or 2100+ DEF. Levels 5-6: 2500+ ATK or 3000+ DEF.
+        Levels 7+ do not get an exemption, and Normal Pendulum monsters keep their original handling.
+        """
+        if info.kind != "Monster" or "normal" not in info.facts["trait"]:
+            return False
+        if "pendulum" in info.facts["trait"]:
+            return False
+        level = info.level
+        atk = info.facts.get("atk")
+        defense = info.facts.get("def")
+        if 1 <= level <= 4:
+            return (atk is not None and atk >= 1900) or (defense is not None and defense >= 2100)
+        if 5 <= level <= 6:
+            return (atk is not None and atk >= 2500) or (defense is not None and defense >= 3000)
+        return False
+
     def normal_ok(self, info: Info) -> bool:
-        """Normal Monsters toggle: False for a Normal Monster when the toggle is off, unless it is one of the theme's cards
-           (Dark Magician in a Dark Magician deck). A Pendulum Normal Monster counts as a Normal Monster too."""
-        return self.allow_normals or "normal" not in info.facts["trait"] or info.name in self.theme_names
+        """Off excludes outside-theme Normals, except independently useful high-stat Normals.
+        Other format, rating and deck-building checks are still applied separately.
+        """
+        return (self.allow_normals or "normal" not in info.facts["trait"]
+                or info.name in self.theme_names or self.strong_normal(info))
 
     def starters_needed(self, monsters: int) -> int:
         """How many Level 4-or-lower monsters the 'starter' rule asks for in a deck with this many monsters:
@@ -1051,6 +1073,21 @@ class Builder:
         return (pieces, bucket, note)
 
     @staticmethod
+    def independent_generic(c: Info) -> bool:
+        """Independent Main Deck candidates for Generic slots.
+
+        Only *strict* support/needs impose synergy requirements here. The general
+        columns describe soft preferences, not a mandatory theme or partner.
+        Keep the separate named-card, Ritual/Pendulum, and card-text safeguards.
+        """
+        if not c.main_deck:
+            return False
+        if (c.row.get("strictSupports") or "").strip() or (c.row.get("strictSupportedBy") or "").strip():
+            return False
+        return is_clean(c.row, c.facts, False, True, False,
+                        ignore_text=text_is_flavor(c.kind, c.facts))
+
+    @staticmethod
     def loose_generic(c: Info) -> bool:
         """Generic enough for a Generic deck: no parsed needs, no required cards, not Ritual / Pendulum."""
         return c.generic and not (c.row.get("required cards") or "").strip() and not ({"ritual", "pendulum"} & c.facts["trait"])
@@ -1189,7 +1226,7 @@ class Builder:
             self._fill_auto_support(deck, pool, slots, rng, origin, debug)
             return
         if norm(label or "") == "generic" or not label:
-            bucket = [c for c in pool if self.loose_generic(c) and self.rating_ok(c)]   # Generic = no parsed needs (specific ones are capped in pick)
+            bucket = [c for c in pool if (self.independent_generic(c) or self.loose_generic(c)) and self.rating_ok(c)]   # Strictly independent or previously accepted generic
         elif is_support:
             bucket = self.support_bucket(label, pool, frozenset(deck.arche))
         elif label in wincon_bucket:
@@ -1234,9 +1271,8 @@ class Builder:
 
     def _fill_generic_slots(self, deck: State, pool: list[Info], slots: int, rng: random.Random) -> None:
         """Fill the explicit Generic share with standalone cards, not random archetype engines."""
-        bucket = [c for c in pool if c.main_deck and c.clean and self.rating_ok(c)]
-        if not bucket:
-            bucket = [c for c in pool if c.main_deck and self.loose_generic(c) and self.rating_ok(c)]
+        bucket = [c for c in pool if c.main_deck and self.rating_ok(c)
+                  and (c.clean or self.independent_generic(c) or self.loose_generic(c))]
         self.fill(deck, bucket, pool, slots, "generic", "dedicated Generic share", rng)
 
     def _support_detail(self, info: Info, deck: State) -> tuple[int, float, str]:
@@ -1315,7 +1351,8 @@ class Builder:
              C. generic cards    plain filler, at most GENERIC_CAP of the deck (unless nothing else is left)
            A Generic deck (no theme) is all staples: it uses generic + broad cards together instead."""
         rated_pool = [c for c in pool if self.rating_ok(c)] or pool                   # generic filler obeys the rating limits
-        generic_pool = [c for c in rated_pool if c.clean] or [c for c in rated_pool if self.loose_generic(c)] or rated_pool   # top up with clean generic cards
+        generic_pool = [c for c in rated_pool if c.main_deck
+                        and (c.clean or self.independent_generic(c) or self.loose_generic(c))] or rated_pool   # independent generic filler
         by_name = {c.name: c for c in pool}
         guard = 0
         generic_cap = round(size * GENERIC_CAP)                                       # how many generic copies we allow

@@ -32,7 +32,7 @@ def defaults() -> dict:
         "level_sliders": False, "level_low_pct": 60, "level_mid_pct": 30, "level_high_pct": 10, "rand_levels": False,
         "allow_normals": True,                                              # Normal Monsters toggle (off = theme ones only)
         "max_era": "GO RUSH!!", "rand_era": False,
-        "min_rating": "0", "max_rating": "5", "rand_rating": False,
+        "min_rating": "2", "max_rating": "5", "rand_rating": False,
         "allow_fusion": True, "allow_synchro": True, "allow_xyz": True, "allow_link": True, "rand_extra_types": False,
         "banlist": UNLIMITED, "date_pool": True,                           # format: Forbidden List, release-date card pool
         "deck_type_overall_pct": 60, "support_overall_pct": 40, "generic_overall_pct": 0, "rand_theme_support": False,

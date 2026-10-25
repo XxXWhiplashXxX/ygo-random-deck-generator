@@ -73,7 +73,7 @@ function setupLabelSearch(labels){labelOptions=labels;
 }
 async function init(){const res=await fetch('/api/options');if(!res.ok)throw Error('Could not load settings');const data=await res.json();defaults=data.defaults;for(const select of document.querySelectorAll('select[data-options]')){const values=data[select.dataset.options];select.replaceChildren(...values.map(v=>new Option(v,v)));}setupLabelSearch(data.labels);for(const [k,v] of Object.entries(defaults))put(k,v);
   const desired={main_size:60,monster_target:30,spell_target:20,trap_target:10,
-    min_rating:3,max_rating:5,deck_type_overall_pct:50,
+    min_rating:2,max_rating:5,deck_type_overall_pct:50,
     support_overall_pct:30,generic_overall_pct:20,support_on:true,allow_normals:false};
   for(const [k,v] of Object.entries(desired))put(k,v);
   sync();}

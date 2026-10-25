@@ -35,7 +35,7 @@ Open **Advanced Settings** for allocations, Support categories, banlists, rating
 | Main Deck | 60 cards |
 | Theme / Support / Generic | 50% / 30% / 20% |
 | Monsters / Spells / Traps | 30 / 20 / 10 |
-| Minimum / maximum rating | 3 / 5 |
+| Minimum / maximum rating | 2 / 5 |
 
 A generated pool is a starting point for a deck-building challenge, not a guarantee of a competitive or tournament-legal deck; review it before playing.
 
