@@ -202,7 +202,13 @@ def apply_aliases(entries: list[Entry], rules: Rules, rng: random.Random, chosen
             continue                                                       # not an alias card
         ok = [n for n in group if cap is None or cap(n) > 0]               # only names this format allows
         room = [n for n in ok if cap is None or used.get(n, 0) < cap(n)]   # ...that still have room under their own limit
-        name = rng.choice(room or ok or [e.info.name])                     # a random one (all full: any - cap_copies trims)
+        # "Fusion Substitute" is always named "Polymerization", but the printed cards
+        # are NOT interchangeable. Keep the selected physical card intact. Their
+        # shared name is still enforced by the alias-group copy cap separately.
+        if {"Polymerization", "Fusion Substitute"}.issubset(set(group)):
+            name = e.info.name
+        else:
+            name = rng.choice(room or ok or [e.info.name])                 # other alias groups retain existing behavior
         pick = rules.by_name.get(norm(name))
         if pick is not None:
             e.info = pick

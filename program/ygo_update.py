@@ -148,6 +148,7 @@ def run_update(cards_path: Path, stats_path: Path, log=print) -> bool:
              "--stats", "Stats_new.csv", "--mechanics", "Mechanics.csv", "--out", "cards_filled.csv")
         step("Fusion substitutes count as Fusion support", "ygo_fusion_substitutes.py", "cards_filled.csv")
         step("Yugipedia: adding supports the parser missed", "ygo_wiki_supports.py", "cards_filled.csv")   # needs card_archseries.csv + Stats_new.csv
+        step("Archetype-limited Fusion searchers", "ygo_fusion_searchers.py", "cards_filled.csv")
     except Exception as e:                                                # any failure: leave the real files alone
         log(f"!!! Update stopped: {e}")
         log("    Your cards.csv and Stats.csv were NOT changed.")
