@@ -11,3 +11,10 @@ input.percent-number:not([type=checkbox]):not([type=range]){display:inline-block
 .advanced-settings>summary:hover{color:#fff}
 .advanced-content{padding-top:3px}
 .advanced-content>section:first-child{border-top:none;margin-top:8px;padding-top:7px}
+
+/* Searchable Theme / Support categories. Keep the full label visible on selection. */
+label:has(> .label-search){position:relative}
+.label-suggestions{position:relative;z-index:20;max-height:230px;overflow:auto;background:#0c1422;border:1px solid #586a8b;border-radius:7px;box-shadow:0 12px 25px #0008;margin-top:2px}
+.label-suggestions[hidden]{display:none}
+.label-option{padding:8px 10px;cursor:pointer;font-size:12px;font-weight:500;color:#e5edff;overflow-wrap:anywhere}
+.label-option:hover,.label-option.active{background:#31456b}

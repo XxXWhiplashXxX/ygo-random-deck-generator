@@ -56,17 +56,31 @@ def wire_random(var: tk.BooleanVar, widgets: list) -> None:
 
 
 def attach_autocomplete(cb: ttk.Combobox) -> None:
-    """Typing 2+ letters narrows the dropdown list to labels containing the text."""
-    cb._all = list(cb["values"])                            # remember the full list
+    """Match the searchable value after '=' while displaying the full label."""
+    cb._all = list(cb["values"])
     skip = {"Up", "Down", "Left", "Right", "Home", "End", "Tab", "Return", "Escape",
             "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R"}
 
+    def searchable(label: str) -> str:
+        return label.split("=", 1)[-1].strip().casefold()
+
     def on_key(e):
-        if e.keysym in skip:
+        if e.keysym in skip or str(cb.cget("state")) == "disabled":
             return
-        t = cb.get().lower()
-        cb["values"] = ([v for v in cb._all if t in v.lower()] or cb._all) if len(t) >= 2 else cb._all
+        query = cb.get().strip().casefold()
+        # An already selected full label must not be interpreted as a new search.
+        if query in (x.casefold() for x in cb._all):
+            cb["values"] = cb._all
+            return
+        matches = [label for label in cb._all if query in searchable(label)] if query else cb._all
+        cb["values"] = matches
+
+    def reset(_event=None):
+        cb["values"] = cb._all
+
     cb.bind("<KeyRelease>", on_key)
+    cb.bind("<<ComboboxSelected>>", reset, add="+")
+    cb.bind("<FocusOut>", reset, add="+")
 
 
 def banlist_names() -> list:

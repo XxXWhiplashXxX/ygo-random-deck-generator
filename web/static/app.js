@@ -27,7 +27,51 @@ function sync(){
   $('total').textContent=sum+'%';
   $('total').style.color=sum===100?'#a8c6ff':'#ff9b9b';
 }
-async function init(){const res=await fetch('/api/options');if(!res.ok)throw Error('Could not load settings');const data=await res.json();defaults=data.defaults;for(const select of document.querySelectorAll('select[data-options]')){const values=data[select.dataset.options];select.replaceChildren(...values.map(v=>new Option(v,v)));}for(const [k,v] of Object.entries(defaults))put(k,v);
+// Search category VALUE (the text after '='), but always display the complete label.
+let labelOptions=[];
+function setupLabelSearch(labels){labelOptions=labels;
+  const searchValue=label=>label.includes('=')?label.split(/=(.*)/s)[1].trim().toLocaleLowerCase():label.trim().toLocaleLowerCase();
+  for(const input of document.querySelectorAll('input.label-search')){
+    const popup=input.nextElementSibling;
+    let selected='',active=-1,visible=[];
+    input.setAttribute('aria-controls',`suggestions-${input.name}`);
+    popup.id=`suggestions-${input.name}`;
+    function close(){popup.hidden=true;input.setAttribute('aria-expanded','false');active=-1;}
+    function choose(value){selected=value;input.dataset.lastValid=value;input.value=value;close();input.dispatchEvent(new Event('change',{bubbles:true}));}
+    function updateActive(){[...popup.children].forEach((node,i)=>{node.classList.toggle('active',i===active);node.setAttribute('aria-selected',String(i===active));});}
+    function show(){
+      const typed=input.value.trim().toLocaleLowerCase();
+      // Don't filter by the non-searchable prefix of a fully selected label.
+      const query=labels.includes(input.value)?'':typed;
+      visible=(query?labels.filter(label=>searchValue(label).includes(query)):labels).slice(0,40);
+      popup.replaceChildren();
+      visible.forEach((label,i)=>{
+        const item=document.createElement('div');item.className='label-option';item.role='option';item.id=`${popup.id}-${i}`;item.textContent=label;
+        item.addEventListener('mousedown',e=>{e.preventDefault();choose(label);});
+        popup.appendChild(item);
+      });
+      active=-1;popup.hidden=!visible.length;
+      input.setAttribute('aria-expanded',String(!!visible.length));
+    }
+    input.addEventListener('focus',show);
+    input.addEventListener('input',()=>{if(labels.includes(input.value)){selected=input.value;input.dataset.lastValid=selected;}show();});
+    input.addEventListener('keydown',e=>{
+      if(e.key==='Escape'){close();return;}
+      if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+        e.preventDefault();if(popup.hidden)show();
+        if(!visible.length)return;
+        active=(active+(e.key==='ArrowDown'?1:-1)+visible.length)%visible.length;
+        updateActive();popup.children[active].scrollIntoView({block:'nearest'});
+      }else if(e.key==='Enter'&&!popup.hidden){
+        if(visible.length){e.preventDefault();choose(visible[Math.max(0,active)]);}
+      }
+    });
+    input.addEventListener('blur',()=>{setTimeout(()=>{if(!labels.includes(input.value))input.value=selected||input.dataset.lastValid||labels[0]||'';close();},100);});
+    // `put()` updates .value directly, so restore the last valid value on focus.
+    input.addEventListener('focus',()=>{if(labels.includes(input.value)){selected=input.value;input.dataset.lastValid=selected;}});
+  }
+}
+async function init(){const res=await fetch('/api/options');if(!res.ok)throw Error('Could not load settings');const data=await res.json();defaults=data.defaults;for(const select of document.querySelectorAll('select[data-options]')){const values=data[select.dataset.options];select.replaceChildren(...values.map(v=>new Option(v,v)));}setupLabelSearch(data.labels);for(const [k,v] of Object.entries(defaults))put(k,v);
   const desired={main_size:60,monster_target:30,spell_target:20,trap_target:10,
     min_rating:3,max_rating:5,deck_type_overall_pct:50,
     support_overall_pct:30,generic_overall_pct:20,support_on:true,allow_normals:false};
@@ -61,7 +105,7 @@ function grid(id,cards){$(id).replaceChildren(...cards.map(c=>{const div=documen
 function headerText(){if(!current)return '';const c=current.categories;return `Yu-Gi-Oh! Random Deck Generator\nSeed: ${current.seed}\n${current.breakdown}\nSelected categories:\n${[['theme1','Theme 1'],['theme2','Theme 2'],['support1','Support 1'],['support2','Support 2']].map(([k,n])=>`  ${n}: ${c[k]?.label||'Automatic'}${c[k]?.detail?' — '+c[k].detail:''}`).join('\n')}\n`;}
 function deckText(){return headerText()+'\n'+[['Main Deck',current.main],['Extra Deck',current.extra]].map(([name,cards])=>`${name} (${cards.length}):\n`+cards.map(c=>`- ${c.name} [${c.origin}]${c.reason?' :: '+c.reason:''}`).join('\n')).join('\n\n')+'\n';}
 function show(d){current=d;const c=d.categories;$('resultTitle').textContent='Generated deck · seed '+d.seed;$('status').textContent='Click a card name to see why it was selected. Export or copy your result below.';$('summary').classList.remove('hidden');$('summary').innerHTML='<strong>Selected categories</strong><br>'+[['theme1','Theme 1'],['theme2','Theme 2'],['support1','Support 1'],['support2','Support 2']].map(([k,n])=>`${n}: ${safe(c[k]?.label||'Automatic')}${c[k]?.detail?' — '+safe(c[k].detail):''}`).join('<br>')+'<hr><pre>'+safe(d.breakdown)+'</pre>';$('deck').classList.remove('hidden');$('mainCount').textContent=d.main.length+' cards';$('extraCount').textContent=d.extra.length+' cards';grid('mainCards',d.main);grid('extraCards',d.extra);$('log').textContent=deckText();for(const id of ['png','ydk','txt','copy'])$(id).disabled=false;for(const [k,v] of Object.entries(d.settings))put(k,v);sync();}
-form.addEventListener('submit',async e=>{e.preventDefault();const v=settings();if(['deck_type_overall_pct','support_overall_pct','generic_overall_pct'].reduce((n,k)=>n+v[k],0)!==100){$('status').textContent='Theme + Support + Generic must equal 100%.';return;}const b=$('generate');b.disabled=true;b.textContent='Generating…';$('status').textContent='Generating deck. This may take a moment.';try{const res=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:v})});const d=await res.json();if(!res.ok)throw Error(d.detail||'Generation failed');show(d);}catch(err){$('status').textContent=err.message;}finally{b.disabled=false;b.textContent='Generate Deck';}});
+form.addEventListener('submit',async e=>{e.preventDefault();for(const input of document.querySelectorAll('input.label-search')){if(document.activeElement===input)input.blur();if(!labelOptions.includes(input.value))input.value=input.dataset.lastValid||labelOptions[0]||'';}const v=settings();if(['deck_type_overall_pct','support_overall_pct','generic_overall_pct'].reduce((n,k)=>n+v[k],0)!==100){$('status').textContent='Theme + Support + Generic must equal 100%.';return;}const b=$('generate');b.disabled=true;b.textContent='Generating…';$('status').textContent='Generating deck. This may take a moment.';try{const res=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:v})});const d=await res.json();if(!res.ok)throw Error(d.detail||'Generation failed');show(d);}catch(err){$('status').textContent=err.message;}finally{b.disabled=false;b.textContent='Generate Deck';}});
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);}
 $('txt').onclick=()=>download(new Blob([deckText()],{type:'text/plain;charset=utf-8'}),`ygo-deck-${current.seed}.txt`);
 $('ydk').onclick=()=>{const ids=arr=>arr.map(c=>c.id).filter(x=>/^\d+$/.test(x)).join('\n');download(new Blob([`#created by ygo_randomizer\n#main\n${ids(current.main)}\n#extra\n${ids(current.extra)}\n!side\n`],{type:'text/plain'}),`ygo-deck-${current.seed}.ydk`);};
