@@ -300,6 +300,17 @@ def possible(branch) -> bool:
     return len(kinds) <= 1
 
 
+def misleading_negative_type_support(card_text: str) -> bool:
+    """Non-Type monsters being weakened/restricted is not a support relationship.
+
+    Only remove negative Type branches when the text identifies an actual penalty;
+    cards genuinely strengthening non-Type monsters still retain their support.
+    """
+    txt = card_text.lower()
+    return (bool(re.search(r"\bnon[- ](?:[a-z-]+)(?:-type)?\b", txt))
+            and bool(re.search(r"\b(?:lose|loses|lost|takes? no damage|no damage|change all non-)\b", txt)))
+
+
 def build_infos(rows: list[dict]) -> list[Info]:
     """Turn every CSV row into an Info (done once, takes a few seconds)."""
     out = []
@@ -312,6 +323,12 @@ def build_infos(rows: list[dict]) -> list[Info]:
         helps = parse_expr(r.get("strictSupports", ""))
         needs = [branch for branch in needs if possible(branch)]        # drop AND-branches no card can meet (Effect Monster && Trap)
         helps = [branch for branch in helps if possible(branch)]
+        # A debuff or damage restriction on non-X monsters is not positive support
+        # for non-X monsters (e.g. Night Dragolich, Splendid VENUS, Gatling Ogre).
+        # Protect generation even if cards.csv was built before the updater fix.
+        if misleading_negative_type_support(r.get("card text", "")):
+            helps = [branch for branch in helps
+                     if not any(a.field == "type" and a.op == "!=" for a in branch)]
         if kind == "Monster" and not needs and not extra:
             dn = discard_need(r, facts)                  # 'If this card is discarded: ...' needs a way to discard it
             if dn:
@@ -1075,6 +1092,22 @@ class Builder:
         return (pieces, bucket, note)
 
     @staticmethod
+    def normal_support_specific(c: Info) -> bool:
+        """Don't use conditional Normal/non-Effect support as standalone Generic filler.
+
+        Inspect the text as well as the CSV: older database builds can lack
+        strict requirements, and even `clean` cards must obey this rule.
+        """
+        if c.kind not in ("Spell", "Trap"):
+            return False
+        txt = (c.row.get("card text") or "").lower()
+        if re.search(r"\b(?:normal monsters?|non[- ]effect monsters?|except for (?:all )?effect monsters?)\b", txt):
+            return True
+        return any("trait = normal monster" in (c.row.get(k) or "").lower()
+                   or "trait != effect monster" in (c.row.get(k) or "").lower()
+                   for k in ("strictSupports", "strictSupportedBy"))
+
+    @staticmethod
     def independent_generic(c: Info) -> bool:
         """Independent Main Deck candidates for Generic slots.
 
@@ -1082,7 +1115,7 @@ class Builder:
         columns describe soft preferences, not a mandatory theme or partner.
         Keep the separate named-card, Ritual/Pendulum, and card-text safeguards.
         """
-        if not c.main_deck:
+        if not c.main_deck or Builder.normal_support_specific(c):
             return False
         if (c.row.get("strictSupports") or "").strip() or (c.row.get("strictSupportedBy") or "").strip():
             return False
@@ -1092,7 +1125,8 @@ class Builder:
     @staticmethod
     def loose_generic(c: Info) -> bool:
         """Generic enough for a Generic deck: no parsed needs, no required cards, not Ritual / Pendulum."""
-        return c.generic and not (c.row.get("required cards") or "").strip() and not ({"ritual", "pendulum"} & c.facts["trait"])
+        return (not Builder.normal_support_specific(c) and c.generic
+                and not (c.row.get("required cards") or "").strip()) and not ({"ritual", "pendulum"} & c.facts["trait"])
 
     def random_mechanic(self, pool: list[Info], rng: random.Random) -> str:
         """For a 'Random' support in a Generic deck: choose a mechanic label that plenty of cards perform
@@ -1274,6 +1308,7 @@ class Builder:
     def _fill_generic_slots(self, deck: State, pool: list[Info], slots: int, rng: random.Random) -> None:
         """Fill the explicit Generic share with standalone cards, not random archetype engines."""
         bucket = [c for c in pool if c.main_deck and self.rating_ok(c)
+                  and not self.normal_support_specific(c)
                   and (c.clean or self.independent_generic(c) or self.loose_generic(c))]
         self.fill(deck, bucket, pool, slots, "generic", "dedicated Generic share", rng)
 
@@ -1354,6 +1389,8 @@ class Builder:
            A Generic deck (no theme) is all staples: it uses generic + broad cards together instead."""
         rated_pool = [c for c in pool if self.rating_ok(c)] or pool                   # generic filler obeys the rating limits
         generic_pool = [c for c in rated_pool if c.main_deck
+                        and not self.normal_support_specific(c)
+                        and not self.normal_support_specific(c)
                         and (c.clean or self.independent_generic(c) or self.loose_generic(c))] or rated_pool   # independent generic filler
         by_name = {c.name: c for c in pool}
         guard = 0

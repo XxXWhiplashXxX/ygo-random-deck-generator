@@ -1458,6 +1458,33 @@ def effect_support_text(effect):
     return NO_DAMAGE_FROM.sub(" ", effect)
 
 
+# Some harmful effects spare one Type, making that Type relatively better.
+# "All non-Fairy monsters lose ATK" benefits Fairy monsters, not non-Fairies.
+# Likewise, damage from non-Fiend monster effects being prevented favors Fiend
+# effect-damage strategies. This is not generic support for every monster.
+SPARED_TYPE_PENALTY = re.compile(
+    r"\b(?:all|change all)\s+non[- ](?P<type1>[A-Za-z]+)(?:-Type)?\s+"
+    r"(?:monsters?\b|(?:Attack Position )?monsters?\b)[^.;]*?"
+    r"\b(?:lose|loses|change|changed|to Defense Position|cannot|can't)\b"
+    r"|\b(?:takes?|receives?)\s+no\s+(?:effect\s+)?damage\s+from\s+"
+    r"non[- ](?P<type2>[A-Za-z]+)(?:-Type)?\s+monsters?['’]?\s+effects?",
+    re.I,
+)
+
+def spared_type_support(card_text):
+    """Give positive support to Types spared by broad negative restrictions."""
+    found = []
+    for match in SPARED_TYPE_PENALTY.finditer(card_text):
+        type_name = match.group('type1') or match.group('type2')
+        label = find_label('Type', type_name)
+        monster = find_label('Card Type', 'Monster')
+        if label and monster:
+            expr = f'{label} && {monster}'
+            if expr not in found:
+                found.append(expr)
+    return found
+
+
 def trait_terms(pieces):                                             # collect the trait expressions found in each piece
     # same logic as pipeline.card_traits, but returns the raw term lists so they can be merged with the mechanic expressions
     helps, needs = [], []                                            # term lists for "who is helped" and "what is needed"
@@ -1670,11 +1697,40 @@ def fill_card(r):   # compute the four support columns for one card row
     for matcher in MATCHERS:                                         # every mechanic matcher, in order
         a, b, c, d = matcher(pieces)                                 # each one gives back the same four lists: ss, gs, sb, gb
         ss += a; gs += b; sb += c; gb += d                           # add them to the card's four columns
+    # Negative non-Type targets are often monsters HARMED by the effect, not
+    # monsters supported by it. Do not turn those targets into strictSupports.
+    # Preserve unrelated support clauses (e.g. Splendid VENUS protects Spells/Traps).
+    card_text = (r.get("card text") or "").lower()
+    if (re.search(r"\bnon[- ](?:[a-z-]+)(?:-type)?\b", card_text)
+            and re.search(r"\b(?:lose|loses|lost|takes? no damage|no damage|change all non-)\b", card_text)):
+        cleaned = []
+        for group in help_terms:
+            good = [term for term in group if not re.search(r"\bType\s*!=", term, re.I)]
+            # The "Monster" remainder is not meaningful support on its own.
+            if any(re.search(r"\bType\s*!=", term, re.I) for term in group):
+                good = [term for term in good if term != "Card Type = Monster"]
+            if good:
+                cleaned.append(good)
+        help_terms = cleaned
+    # Protection that explicitly excludes Effect Monsters benefits NON-EFFECT
+    # monsters. The ordinary trait scanner can invert the exception and label
+    # Effect Monsters themselves as the beneficiaries (Non-Spellcasting Area).
+    if re.search(r"\b(?:except for|except)\s+(?:all\s+)?Effect Monsters\b", card_text) and re.search(r"\bunaffected by\b", card_text):
+        help_terms = [[term for term in group if term != "Trait = Effect Monster"]
+                      for group in help_terms]
+        help_terms = [group for group in help_terms if group]
+        help_terms.append(["Trait != Effect Monster && Card Type = Monster"])
+    # Append genuine benefits from the spared Type, not the penalized Type.
+    # Unrelated support effects already extracted above remain untouched.
+    ss += spared_type_support(r.get("card text") or "")
     strict_supports = combine(help_terms + [[x] for x in ss])                    # who is helped: traits OR bare strict labels
     flat = [t for terms in need_terms for t in terms]                              # the plain trait terms found in costs/conditions
     drop = {t for t in flat if any(e.startswith(t + " && ") or e.startswith("(" + t + ") && ") for e in sb)}   # a trait already inside "trait && mechanic" is not repeated
     need_terms = [[t for t in terms if t not in drop] for terms in need_terms]   # remove those repeated traits from the plain need terms
     strict_by = combine(need_terms + [[x] for x in sb])                          # what is needed: traits OR combined need expressions
+    # Revealing is Heart of the Underdog's effect, not an alternate requirement.
+    if (r.get("name") or "").casefold() == "heart of the underdog":
+        strict_by = "Trait = Normal Monster"
     general_supports = " || ".join(dict.fromkeys(gs))                              # single mechanics, joined with ||
     general_by = " || ".join(dict.fromkeys(gb))                                    # same for the needed mechanics
     return strict_supports, general_supports, strict_by, general_by   # the four column values, in file order
