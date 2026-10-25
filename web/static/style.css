@@ -18,3 +18,9 @@ label:has(> .label-search){position:relative}
 .label-suggestions[hidden]{display:none}
 .label-option{padding:8px 10px;cursor:pointer;font-size:12px;font-weight:500;color:#e5edff;overflow-wrap:anywhere}
 .label-option:hover,.label-option.active{background:#31456b}
+
+.extra-distribution{border-top:1px solid #30405a;margin:18px 0;padding-top:14px}
+.extra-distribution>strong{display:block;font-size:13px;color:#cbd9f5}
+.extra-distribution>small{display:block;margin:5px 0}
+
+.offline-updater{margin-top:20px;padding:16px;background:#0f1727}.offline-updater p{color:#a9b9d2;font-size:12px}.offline-updater button{margin:5px 5px 5px 0}.offline-updater [hidden]{display:none!important}

@@ -282,8 +282,9 @@ class ExtraBuilder:
 
     def pool(self, req: Request) -> list[Info]:
         """Extra Deck monsters allowed by the era/rating filters and the Fusion/Synchro/Xyz/Link switches."""
+        percentages = dict(zip(("fusion", "synchro", "xyz", "link"), req.extra_type_pcts))
         want = {t for t, on in (("fusion", req.allow_fusion), ("synchro", req.allow_synchro),
-                                ("xyz", req.allow_xyz), ("link", req.allow_link)) if on}
+                                ("xyz", req.allow_xyz), ("link", req.allow_link)) if on and percentages[t] > 0}
         theme = self.builder.theme_archetypes(req)                                      # on-theme Extra Deck monsters ignore the rating limits
         return [i for i in self.builder.allowed(req, extra=True, rated=False) if i.facts["trait"] & want
                 and (self.builder.rating_ok(i, req) or (i.facts["archetype"] & theme))]
@@ -315,9 +316,10 @@ class ExtraBuilder:
             f, _ = self.builder.eval_needs(c, deck, deck_pool, scan_partners=False)                              # soft check of the card's own costs
             theme = any(self.theme_match(l, c) for l in labels)
             scored.append(Candidate(sc, f, theme, c))
-        return self._pick_extra(scored, req.extra_deck_size, rng, "extra (main-first)", deck.arche, generic=deck.generic_deck)
+        return self._pick_extra(scored, req.extra_deck_size, rng, "extra (main-first)", deck.arche,
+                                generic=deck.generic_deck, req=req)
 
-    def _pick_extra(self, scored: list[Candidate], size: int, rng: random.Random, why: str, arche: set = frozenset(), generic: bool = False) -> list[Entry]:
+    def _pick_extra(self, scored: list[Candidate], size: int, rng: random.Random, why: str, arche: set = frozenset(), generic: bool = False, req: Optional[Request] = None) -> list[Entry]:
         """Two phases, like a real Extra Deck (theme cards first, a few staples after):
              1. ON-THEME cards, weighted by summon score. (Theme cards are used up before anything else.)
              2. Everything else, weighted by score^3 x cost factor, with cards of a DIFFERENT archetype
@@ -327,29 +329,72 @@ class ExtraBuilder:
         live = list(scored)
         if generic:                                                                  # Generic deck: no extra that needs named cards
             live = [x for x in live if not ((x.card.row.get("required cards") or "").strip() or '"' in (x.card.row.get("materials") or ""))]
+        # Target counts for each Extra Deck monster kind. Allocate rounding fairly.
+        kinds = ("fusion", "synchro", "xyz", "link")
+        percentages = dict(zip(kinds, req.extra_type_pcts if req else (25, 25, 25, 25)))
+        enabled = [k for k in kinds if percentages[k] > 0]
+        total = sum(percentages[k] for k in enabled)
+        raw = {k: size * percentages[k] / total for k in enabled} if total else {}
+        quotas = {k: int(raw[k]) for k in enabled}
+        for k in sorted(enabled, key=lambda k: raw[k] - quotas[k], reverse=True)[:size - sum(quotas.values())]:
+            quotas[k] += 1
+        picked = {k: 0 for k in kinds}
+        # A theme/generic ratio of 50:20 becomes ~71% themed Extra cards.
+        # Support has no dedicated Extra Deck category, so it is not part of this ratio.
+        theme_target = None
+        if req and req.extra_match_main_ratio:
+            numerator = req.deck_type_overall_pct
+            denominator = numerator + req.generic_overall_pct
+            theme_target = round(size * numerator / denominator) if denominator else 0
+        theme_taken = 0
         loose_taken = 0                                                              # Generic deck: archetype-bound extras picked so far
 
+        def kind_of(candidate: Candidate) -> str:
+            return next((k for k in kinds if k in candidate.card.facts["trait"]), "")
+
+        def available(idxs: list[int]) -> list[int]:
+            """Respect percentage targets if a fitting candidate exists; otherwise fall back."""
+            within = [i for i in idxs if picked[kind_of(live[i])] < quotas.get(kind_of(live[i]), 0)]
+            return within or idxs
+
         def take(idx: int, tag: str) -> None:
-            """Add the chosen card (1-3 copies) and remove it from the list of live candidates."""
+            """Add a weighted card without overrunning an unfilled type quota."""
+            nonlocal loose_taken, theme_taken
             sc, f, th, c = live[idx]
-            nonlocal loose_taken
+            kind = kind_of(live[idx])
             if generic and not c.clean:
                 loose_taken += 1
-            n = min(self.copies(rng), self.builder.cap(c.name), size - len(out))   # its copy limit (banlist / Highlander)
+            n = min(self.copies(rng), self.builder.cap(c.name), size - len(out))
+            left = quotas.get(kind, 0) - picked[kind]
+            if left > 0:
+                n = min(n, left)
             for _ in range(n):
                 out.append(Entry(c, "extra", f"{why}: summon score {sc:.2f}" + (", on-theme" if th else "") + tag))
-            live.pop(idx)                                                            # each Extra Deck card is chosen once
+            picked[kind] += n
+            if th:
+                theme_taken += n
+            live.pop(idx)
 
         while len(out) < size:                                                       # phase 1: theme cards
             idxs = [i for i, x in enumerate(live) if x.on_theme and x.score > 0]
+            if theme_target is not None and theme_taken >= theme_target:
+                break
             if not idxs: break
+            idxs = available(idxs)
             near = {c.name for c in self.builder.rating_tier([live[i].card for i in idxs])}   # nearest the rating limits first
             idxs = [i for i in idxs if live[i].card.name in near]
             weights = [max(live[i].score, 0.02) ** 3 for i in idxs]
             take(rng.choices(idxs, weights=weights)[0], "")
         while len(out) < size and live:                                              # phase 2: the rest
+            idxs = available(list(range(len(live))))
+            if theme_target is not None:
+                remaining_theme = theme_target - theme_taken
+                preferred = [i for i in idxs if live[i].on_theme == (remaining_theme > 0)]
+                if preferred:
+                    idxs = preferred
             weights = []
-            for sc, f, th, c in live:                                                # (score, cost, on_theme, card)
+            for i in idxs:
+                sc, f, th, c = live[i]                                                 # (score, cost, on_theme, card)
                 a = c.facts["archetype"]
                 fit = 1.0 if (not a or not arche or (a & arche)) else 0.15           # off-archetype extras are rare picks
                 if generic:
@@ -357,7 +402,7 @@ class ExtraBuilder:
                 weights.append(max(sc, 0.02) ** 3 * fit * (max(f, 0.1) if f is not None else 1.0))
             if not any(w > 0 for w in weights):                                      # only capped cards left (Generic deck): stop short
                 break
-            take(rng.choices(range(len(live)), weights=weights)[0], "")
+            take(rng.choices(idxs, weights=weights)[0], "")
         return out
 
     # ---- EXTRA-FIRST -----------------------------------------------------
@@ -379,7 +424,7 @@ class ExtraBuilder:
                 theme_cards += bucket
                 for c in bucket: theme_arche |= c.facts["archetype"]               # archetypes that belong in this deck
         extra = self._pick_extra(scored, req.extra_deck_size, rng, "extra (extra-first)", theme_arche,
-                                  generic=all(norm(l or "") in ("generic", "") for l in labels))
+                                  generic=all(norm(l or "") in ("generic", "") for l in labels), req=req)
         main_pool = [i for i in self.builder.allowed(req) if i.kind == "Monster"]
         reserved: dict = {}                                                         # name -> copies already reserved
         placed: list[Info] = []                                                     # one Info per reserved copy

@@ -6,6 +6,7 @@ const put=(k,v)=>{const el=form.elements.namedItem(k);if(el){if(el.type==='check
 const get=k=>form.elements.namedItem(k);
 const allocation=['deck_type_overall_pct','support_overall_pct','generic_overall_pct'];
 const mix=['monster_target','spell_target','trap_target'];
+const extraMix=['extra_fusion_pct','extra_synchro_pct','extra_xyz_pct','extra_link_pct'];
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,Math.round(Number(n)||0)));
 function balance(keys,changed,total){
   const val=clamp(get(changed).value,0,total);
@@ -23,6 +24,9 @@ function balance(keys,changed,total){
 }
 function sync(){
   for(const field of document.querySelectorAll('.percent-number'))field.value=get(field.dataset.for).value;
+  const esum=extraMix.reduce((n,k)=>n+Number(get(k).value),0);
+  $('extraTotal').textContent=esum+'% total';
+  $('extraTotal').style.color=esum===100?'#a8c6ff':'#ff9b9b';
   const sum=allocation.reduce((n,k)=>n+Number(get(k).value),0);
   $('total').textContent=sum+'%';
   $('total').style.color=sum===100?'#a8c6ff':'#ff9b9b';
@@ -74,7 +78,8 @@ function setupLabelSearch(labels){labelOptions=labels;
 async function init(){const res=await fetch('/api/options');if(!res.ok)throw Error('Could not load settings');const data=await res.json();defaults=data.defaults;for(const select of document.querySelectorAll('select[data-options]')){const values=data[select.dataset.options];select.replaceChildren(...values.map(v=>new Option(v,v)));}setupLabelSearch(data.labels);for(const [k,v] of Object.entries(defaults))put(k,v);
   const desired={main_size:60,monster_target:30,spell_target:20,trap_target:10,
     min_rating:2,max_rating:5,deck_type_overall_pct:50,
-    support_overall_pct:30,generic_overall_pct:20,support_on:true,allow_normals:false};
+    support_overall_pct:30,generic_overall_pct:20,support_on:true,allow_normals:false,
+    extra_match_main_ratio:true,extra_fusion_pct:25,extra_synchro_pct:25,extra_xyz_pct:25,extra_link_pct:25};
   for(const [k,v] of Object.entries(desired))put(k,v);
   sync();}
 form.addEventListener('input',e=>{
@@ -85,6 +90,7 @@ form.addEventListener('input',e=>{
     put(key,clamp(target.value,0,100));
   }
   if(allocation.includes(key))balance(allocation,key,100);
+  if(extraMix.includes(key))balance(extraMix,key,100);
   if(mix.includes(key))balance(mix,key,clamp(get('main_size').value,40,60));
   if(key==='main_size'){
     const size=clamp(target.value,40,60);
@@ -105,7 +111,7 @@ function grid(id,cards){$(id).replaceChildren(...cards.map(c=>{const div=documen
 function headerText(){if(!current)return '';const c=current.categories;return `Yu-Gi-Oh! Random Deck Generator\nSeed: ${current.seed}\n${current.breakdown}\nSelected categories:\n${[['theme1','Theme 1'],['theme2','Theme 2'],['support1','Support 1'],['support2','Support 2']].map(([k,n])=>`  ${n}: ${c[k]?.label||'Automatic'}${c[k]?.detail?' — '+c[k].detail:''}`).join('\n')}\n`;}
 function deckText(){return headerText()+'\n'+[['Main Deck',current.main],['Extra Deck',current.extra]].map(([name,cards])=>`${name} (${cards.length}):\n`+cards.map(c=>`- ${c.name} [${c.origin}]${c.reason?' :: '+c.reason:''}`).join('\n')).join('\n\n')+'\n';}
 function show(d){current=d;const c=d.categories;$('resultTitle').textContent='Generated deck · seed '+d.seed;$('status').textContent='Click a card name to see why it was selected. Export or copy your result below.';$('summary').classList.remove('hidden');$('summary').innerHTML='<strong>Selected categories</strong><br>'+[['theme1','Theme 1'],['theme2','Theme 2'],['support1','Support 1'],['support2','Support 2']].map(([k,n])=>`${n}: ${safe(c[k]?.label||'Automatic')}${c[k]?.detail?' — '+safe(c[k].detail):''}`).join('<br>')+'<hr><pre>'+safe(d.breakdown)+'</pre>';$('deck').classList.remove('hidden');$('mainCount').textContent=d.main.length+' cards';$('extraCount').textContent=d.extra.length+' cards';grid('mainCards',d.main);grid('extraCards',d.extra);$('log').textContent=deckText();for(const id of ['png','ydk','txt','copy'])$(id).disabled=false;for(const [k,v] of Object.entries(d.settings))put(k,v);sync();}
-form.addEventListener('submit',async e=>{e.preventDefault();for(const input of document.querySelectorAll('input.label-search')){if(document.activeElement===input)input.blur();if(!labelOptions.includes(input.value))input.value=input.dataset.lastValid||labelOptions[0]||'';}const v=settings();if(['deck_type_overall_pct','support_overall_pct','generic_overall_pct'].reduce((n,k)=>n+v[k],0)!==100){$('status').textContent='Theme + Support + Generic must equal 100%.';return;}const b=$('generate');b.disabled=true;b.textContent='Generating…';$('status').textContent='Generating deck. This may take a moment.';try{const res=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:v})});const d=await res.json();if(!res.ok)throw Error(d.detail||'Generation failed');show(d);}catch(err){$('status').textContent=err.message;}finally{b.disabled=false;b.textContent='Generate Deck';}});
+form.addEventListener('submit',async e=>{e.preventDefault();for(const input of document.querySelectorAll('input.label-search')){if(document.activeElement===input)input.blur();if(!labelOptions.includes(input.value))input.value=input.dataset.lastValid||labelOptions[0]||'';}const v=settings();if(['deck_type_overall_pct','support_overall_pct','generic_overall_pct'].reduce((n,k)=>n+v[k],0)!==100){$('status').textContent='Theme + Support + Generic must equal 100%.';return;}if(extraMix.reduce((n,k)=>n+Number(get(k).value),0)!==100){$('status').textContent='Extra Deck types must total 100%.';return;}const b=$('generate');b.disabled=true;b.textContent='Generating…';$('status').textContent='Generating deck. This may take a moment.';try{const res=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:v})});const d=await res.json();if(!res.ok)throw Error(d.detail||'Generation failed');show(d);}catch(err){$('status').textContent=err.message;}finally{b.disabled=false;b.textContent='Generate Deck';}});
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);}
 $('txt').onclick=()=>download(new Blob([deckText()],{type:'text/plain;charset=utf-8'}),`ygo-deck-${current.seed}.txt`);
 $('ydk').onclick=()=>{const ids=arr=>arr.map(c=>c.id).filter(x=>/^\d+$/.test(x)).join('\n');download(new Blob([`#created by ygo_randomizer\n#main\n${ids(current.main)}\n#extra\n${ids(current.extra)}\n!side\n`],{type:'text/plain'}),`ygo-deck-${current.seed}.ydk`);};

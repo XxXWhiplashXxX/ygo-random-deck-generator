@@ -84,3 +84,14 @@ For Render deployment, see **[WEB_HOSTING_README.md](WEB_HOSTING_README.md)**. T
 | `WEB_HOSTING_README.md` | Instructions for public hosting |
 
 **Card names and images belong to their respective rights holders.**
+
+### Offline application (same interface as website)
+
+Install the dependencies using `py -3.12 -m pip install -r web/requirements.txt`,
+then double-click **Yu-Gi-Oh Randomizer.pyw** on Windows or run
+`python web/offline.py`. This launches the exact same browser UI on your own
+computer, with an extra **Check for New Cards** updater.
+
+The old Tkinter window is still included as
+`Yu-Gi-Oh Randomizer (Legacy Tkinter).pyw`. See `OFFLINE_WEB_README.md` for more.
+

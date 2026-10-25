@@ -1440,6 +1440,24 @@ MENTION_OWN = re.compile(r"\b(?:you control|in your (?:Main )?Monster Zones?|on 
 FLOODGATE_TARGET = re.compile(r"\b(?:neither player can|(?:your opponent|each player|that player) cannot) (?:(?:Normal|Flip) (?:or|and/or|and) )?(?:Special |Normal |Tribute |Flip )?Summon\b(?:(?!,?\s*(?:except|also|and|then)\b)[^.;])*", re.I)   # FLOODGATE_TARGET: what a Summon floodgate stops ("Neither player can Special Summon Effect Monsters"), up to "except ..." / ", also" / the end of the sentence
 AS_CONTINUOUS = re.compile(r"\b(?:treated )?as (?:a |an )?(?:face-up )?Continuous (?:Spells?|Traps?)(?: Cards?)?\b", re.I)   # "place it in your Spell & Trap Zone as a face-up Continuous Trap": no Continuous Trap is helped
 
+# Clauses that PREVENT damage are not support for the monsters named in them.
+# Example: Gatling Ogre says the opponent takes no damage from non-Fiend
+# monsters' effects. That restriction must NOT produce Type != Fiend support.
+NO_DAMAGE_FROM = re.compile(
+    r"\b(?:your opponent|the opponent|opponent|you|(?:neither|both|each) players?)\s+"
+    r"(?:take|takes|receive|receives|suffer|suffers)\s+no\s+"
+    r"(?:battle\s+|effect\s+)?damage\s+from\b[^.;]*",
+    re.I,
+)
+
+def effect_support_text(effect):
+    """Remove harm-prevention clauses before harvesting supported traits.
+
+    Preserve the original text for mechanic and other effect parsing.
+    """
+    return NO_DAMAGE_FROM.sub(" ", effect)
+
+
 def trait_terms(pieces):                                             # collect the trait expressions found in each piece
     # same logic as pipeline.card_traits, but returns the raw term lists so they can be merged with the mechanic expressions
     helps, needs = [], []                                            # term lists for "who is helped" and "what is needed"
@@ -1456,7 +1474,7 @@ def trait_terms(pieces):                                             # collect t
         needs += [extract_terms(m.group(0)) for m in MENTION_OWN.finditer(effect)]   # a monster you already control that mentions X: a need (the whole phrase, so "a Fusion Monster that mentions ..." keeps "Fusion Monster") ...
         effect = MENTION_OWN.sub(" ", effect)                        # ... and not a support (removed before the effect's help terms below)
         needs += [extract_terms(m.group("obj")) for m in EQUIP_ONLY.finditer(effect)]   # "Equip only to a Warrior monster": needs Warriors (named cards are already in 'required cards')
-        helps.append(extract_terms(effect))                          # effects help
+        helps.append(extract_terms(effect_support_text(effect)))    # a restriction on damage is not trait support
         t = TARGET_RE.search(cost)                                   # a "target 1 ..." clause inside the cost
         if t: helps.append(extract_terms(t.group(0)))                # what is targeted is what gets helped
     return helps, needs                                              # both lists of term lists

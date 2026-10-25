@@ -174,6 +174,8 @@ class Request:
     allow_synchro: bool = True
     allow_xyz: bool = True
     allow_link: bool = True
+    extra_type_pcts: tuple[int, int, int, int] = (25, 25, 25, 25)  # Fusion, Synchro, Xyz, Link shares
+    extra_match_main_ratio: bool = True                     # match main Theme:Generic ratio in Extra Deck
     build_order: str = "main-first"                      # main-first / extra-first / random
     # Format settings
     banlist: Optional[str] = None                        # name of a list in 'forbidden lists' (None = Unlimited)

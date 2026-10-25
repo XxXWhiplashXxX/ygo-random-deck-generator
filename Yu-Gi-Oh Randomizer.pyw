@@ -1,18 +1,39 @@
-"""Double-click this file to start the Yu-Gi-Oh! Deck Randomizer.
-(.pyw = Windows runs it without the black console window. Everything else lives in the 'program' folder.)"""
-import sys                                                  # lets Python find the files in 'program'
-import traceback                                            # turns an error into readable text
+"""Launch the offline web UI with Python 3.12, regardless of .pyw file associations."""
+import subprocess
+import sys
 from pathlib import Path
 
-PROGRAM = Path(__file__).resolve().parent / "program"       # the folder with all the .py files
-sys.path.insert(0, str(PROGRAM))                            # 'import ygo_gui' now looks there
+ROOT = Path(__file__).resolve().parent
+OFFLINE = ROOT / "web" / "offline.py"
 
-try:
-    import ygo_gui                                          # the window
-    ygo_gui.build_gui()                                     # open it (runs until you close the window)
-except Exception:                                           # no console to print to, so show the error in a pop-up
+
+def show_error(message):
     import tkinter as tk
     from tkinter import messagebox
     root = tk.Tk()
-    root.withdraw()                                         # no empty main window, just the message
-    messagebox.showerror("Yu-Gi-Oh! Randomizer", "The randomizer could not start:\n\n" + traceback.format_exc()[-1500:])
+    root.withdraw()
+    messagebox.showerror("Yu-Gi-Oh! Randomizer", message)
+    root.destroy()
+
+
+def main():
+    # On Windows, the .pyw file association may point at an older Python.
+    # Explicitly use the Python Launcher to select the 3.12 environment that
+    # has the packages from web/requirements.txt installed.
+    command = ["py", "-3.12", str(OFFLINE)]
+    try:
+        # Keep a console for logs/errors and a simple way to stop the server.
+        flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+        subprocess.Popen(command, cwd=str(ROOT), creationflags=flags)
+    except FileNotFoundError:
+        show_error("Windows Python Launcher (py.exe) was not found.\n\n"
+                   "Run this from PowerShell instead:\n"
+                   "py -3.12 web/offline.py")
+    except Exception as exc:
+        show_error("Couldn't start the offline generator with Python 3.12.\n\n"
+                   f"{exc}\n\n"
+                   "Try from PowerShell: py -3.12 web/offline.py")
+
+
+if __name__ == "__main__":
+    main()

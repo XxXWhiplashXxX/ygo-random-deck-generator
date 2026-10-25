@@ -73,6 +73,16 @@ def generate(data: GenerateInput):
         settings[key] = max(0, min(100, int(settings[key])))
     if sum(settings[k] for k in ('deck_type_overall_pct','support_overall_pct','generic_overall_pct')) != 100:
         raise HTTPException(400, 'Theme, Support and Generic must total 100%.')
+    type_keys = ('extra_fusion_pct', 'extra_synchro_pct', 'extra_xyz_pct', 'extra_link_pct')
+    try:
+        percentages = [int(settings[k]) for k in type_keys]
+    except (ValueError, TypeError):
+        raise HTTPException(400, 'Extra Deck percentages must be numbers.')
+    if any(x < 0 or x > 100 for x in percentages) or sum(percentages) != 100:
+        raise HTTPException(400, 'Extra Deck percentages must total 100%.')
+    for k, v in zip(('allow_fusion', 'allow_synchro', 'allow_xyz', 'allow_link'), percentages):
+        settings[k] = v > 0
+    settings['rand_extra_types'] = False   # Website sliders supersede the old random on/off switches.
     S.roll(settings, random.Random())
     try:
         req = S.make_request(settings, banlists=list(load_banlists(P.FORBIDDEN)))
