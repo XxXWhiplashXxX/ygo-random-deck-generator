@@ -66,7 +66,7 @@ def restate(entries: list[Entry], quota: Optional[dict] = None) -> State:
     for e in entries:
         key = (e.info.name, e.origin, e.reason)
         groups.setdefault(key, [e.info, 0])[1] += 1
-    for (name, origin, reason), (info, n) in groups.items():
+    for (_name, origin, reason), (info, n) in groups.items():
         deck.add(info, n, origin, reason)
     # keep the ORIGINAL order of entries (State.add appends grouped copies, which is fine for counting)
     deck.entries = list(entries)
@@ -164,12 +164,44 @@ def requirements(info: Info, rules: Rules) -> list[tuple]:
     return list(dict.fromkeys(out))
 
 
+def counts_as(info: Info, name: str) -> bool:
+    """True if this card IS `name`, or is always treated as `name` (its alias column lists it):
+       Fusion Substitute counts as Polymerization, Harpie Lady 1 counts as Harpie Lady."""
+    if info.name == name:
+        return True
+    return norm(name) in {norm(a) for a in info.aliases}                   # same-deck aliases only (see Info.aliases)
+
+
+def same_card_choices(info: Info, rules: Rules, builder: Builder, counts: dict, pool_names: set) -> list[Info]:
+    """Every main-deck card that counts as `info` and could be added now: `info` itself (as before), plus the other
+       names of its alias group that this format allows (in `pool_names`), with copies to spare and not blocked
+       by the Normal Monster toggle. Picking from these treats e.g. Polymerization and Fusion Substitute as one card."""
+    group = alias_group(info, rules) or (info.name,)                       # just itself if it has no other names
+    out = []
+    for name in group:
+        c = rules.by_name.get(norm(name))
+        if c is None or not c.main_deck or not builder.normal_ok(c):
+            continue
+        if c.name != info.name and c.name not in pool_names:
+            continue                                                       # another name: only if this format allows it
+        if counts.get(c.name, 0) < builder.cap(c.name):                    # room for another copy
+            out.append(c)
+    return out
+
+
+def pick_one(choices: list[Info], rng: random.Random) -> Info:
+    """One card from same_card_choices(). The dice are only rolled when there really is a choice, so decks
+       without such cards come out exactly as they did before."""
+    return choices[0] if len(choices) == 1 else rng.choice(choices)
+
+
 def satisfied(item: tuple, deck: State, extra: Optional[list] = None) -> bool:
     """Is this requirement already met by the cards in the deck? (`extra`: the Extra Deck entries count too,
-       for a requirement that is itself an Extra Deck monster, like Black-Winged Dragon)"""
+       for a requirement that is itself an Extra Deck monster, like Black-Winged Dragon).
+       A card that counts as the named card (counts_as) meets it too: Fusion Substitute meets 'needs Polymerization'."""
     kind, value = item
     if kind == "name":
-        return deck.counts.get(value, 0) > 0 or any(e.info.name == value for e in extra or [])
+        return any(counts_as(c, value) for c in deck.unique.values()) or any(counts_as(e.info, value) for e in extra or [])
     return any(value in c.facts["archetype"] for c in deck.unique.values())
 
 
@@ -177,12 +209,10 @@ def satisfied(item: tuple, deck: State, extra: Optional[list] = None) -> bool:
 # 1. Aliases
 # --------------------------------------------------------------------------
 def alias_group(info: Info, rules: Rules) -> Optional[tuple]:
-    """The card's alias group ('Harpie Lady||Harpie Lady 1||...' -> every real name in it, sorted), or None if it has none."""
-    alias = info.row.get("alias", "").strip()
-    if not alias:
-        return None
-    group = tuple(sorted(r for r in (rules.resolver.find(n) for n in alias.split("||") if n.strip()) if r))
-    return group if len(group) >= 2 else None                              # a group of one is no group
+    """Every name that counts as the same card as this one, itself included, sorted ('Harpie Lady', 'Harpie Lady 1', ...),
+       or None if it has no other names. Only cards in the SAME deck section are in it (Info.aliases): Neo-Spacian
+       Marine Dolphin is 'treated as' Aqua Dolphin, but it is an Extra Deck card, so the two are never mixed."""
+    return tuple(sorted({info.name, *info.aliases})) if info.aliases else None
 
 
 def group_cap(group: tuple, cap) -> int:
@@ -203,13 +233,7 @@ def apply_aliases(entries: list[Entry], rules: Rules, rng: random.Random, chosen
             continue                                                       # not an alias card
         ok = [n for n in group if cap is None or cap(n) > 0]               # only names this format allows
         room = [n for n in ok if cap is None or used.get(n, 0) < cap(n)]   # ...that still have room under their own limit
-        # "Fusion Substitute" is always named "Polymerization", but the printed cards
-        # are NOT interchangeable. Keep the selected physical card intact. Their
-        # shared name is still enforced by the alias-group copy cap separately.
-        if {"Polymerization", "Fusion Substitute"}.issubset(set(group)):
-            name = e.info.name
-        else:
-            name = rng.choice(room or ok or [e.info.name])                 # other alias groups retain existing behavior
+        name = rng.choice(room or ok or [e.info.name])                     # any name of the group (Polymerization / Fusion Substitute too)
         pick = rules.by_name.get(norm(name))
         if pick is not None:
             e.info = pick
@@ -272,6 +296,7 @@ def add_required(builder: Builder, extra_builder: ExtraBuilder, deck: State, ext
     extra_ok = {c.name for c in extra_builder.pool(req)}                              # Extra Deck monsters this format + the type switches allow
 
     busy: set = set()                                                      # Extra Deck cards being added right now (no loops)
+    pool_names = {c.name for c in pool}                                    # cards this format allows (for same_card_choices)
 
     def add_to_extra(info: Info, who: str) -> bool:
         """A required card that is itself an Extra Deck monster goes in the EXTRA Deck (1 copy), together with
@@ -305,10 +330,12 @@ def add_required(builder: Builder, extra_builder: ExtraBuilder, deck: State, ext
         kind, value = item
         if kind == "name":
             info = rules.by_name[norm(value)]
-            if not builder.normal_ok(info):
-                return False                                               # a Normal Monster, and the Normal toggle is off
             if not info.main_deck:                                         # an Extra Deck monster (e.g. the Xyz a CXyz is made from)
-                return add_to_extra(info, who)                             # goes in the Extra Deck, not the main deck
+                return add_to_extra(info, who) if builder.normal_ok(info) else False   # goes in the Extra Deck, not the main deck
+            choices = same_card_choices(info, rules, builder, deck.counts, pool_names)
+            if not choices:
+                return False                                               # Normal toggle off / no copies left / not allowed
+            info = pick_one(choices, rng)                                  # Polymerization OR Fusion Substitute, equally likely
         else:                                                              # archetype: choose a card of that archetype
             cands = [c for c in pool if value in c.facts["archetype"] and c.main_deck      # main-deck cards only
                      and deck.counts.get(c.name, 0) < builder.cap(c.name) and builder.normal_ok(c)]
@@ -468,8 +495,9 @@ def apply_mentions(builder: Builder, deck: State, pool: list[Info], rules: Rules
     score: dict = {}                                                       # name -> [links, Info, reasons]
 
     def consider(card: Info, why: str) -> None:
-        if card.name in deck.counts or card.name not in allowed or not card.main_deck or not builder.normal_ok(card):
-            return                                                         # already in the deck / not allowed / Extra Deck / Normal toggle
+        if any(counts_as(c, card.name) for c in deck.unique.values()) or card.name not in allowed \
+                or not card.main_deck or not builder.normal_ok(card):
+            return                                                         # already in the deck (or a card that counts as it) / not allowed / Extra Deck / Normal toggle
         a = card.facts["archetype"]
         if a and arche and not (a & arche):
             return                                                         # belongs to some other archetype
@@ -494,11 +522,13 @@ def apply_mentions(builder: Builder, deck: State, pool: list[Info], rules: Rules
     while cands and used < MENTION_CAP:
         weights = [(n ** 2) * builder.level_bias(c, deck) *(2.0 if (c.generic or needs_covered(builder, c, deck)) else 0.3) for n, c, _ in cands]
         n, card, why = rng.choices(cands, weights=weights)[0]
+        named = card                                                       # the card the links point at
+        card = pick_one(same_card_choices(named, rules, builder, deck.counts, allowed) or [named], rng)   # or one that counts as it
         copies = min(2 if n >= 3 else 1, builder.cap(card.name), MENTION_CAP - used)
         deck.add(card, copies, "mention", "mention: " + "; ".join(why[:3]))
         added.append(card.name)
         used += copies
-        cands = [x for x in cands if x[1].name != card.name]
+        cands = [x for x in cands if x[1].name != named.name]
     debug["mention_cards_added"] = added
 
 
@@ -553,6 +583,23 @@ def trim(entries: list[Entry], size: int, rng: random.Random, plan: dict | None 
 # --------------------------------------------------------------------------
 # 4. Swap cards whose needs are not covered
 # --------------------------------------------------------------------------
+def _theme_swaps(builder: Builder, card: Info, deck: State, pool: list[Info]) -> list[tuple]:
+    """Replacements for a THEME card whose needs aren't met: other cards of the same theme (builder.theme_names),
+       of the same kind (Monster / Spell / Trap, so the deck's mix stays), whose needs ARE met.
+       [(weight, Info)]; empty = no such card, so the theme card stays where it is.
+       (Before this, any card of the same kind could take its place, and a theme could lose its own cards.)"""
+    out = []
+    for x in pool:                                                          # the whole pool, in its fixed order (no sampling)
+        if x.name not in builder.theme_names or x.name == card.name or x.kind != card.kind:
+            continue                                                        # not this theme / the same card / other kind
+        if deck.counts.get(x.name, 0) >= builder.cap(x.name) or not builder.normal_ok(x) or builder.junk(x, deck):
+            continue                                                        # no copies left / Normal toggle / can't work here
+        f, partner = builder.eval_needs(x, deck, pool, scan_partners=False)
+        if f >= 1.0 and partner is None:                                    # its needs are met by this deck
+            out.append((builder.level_bias(x, deck) * builder.help_factor(x, deck), x))
+    return out
+
+
 def swap_unmet(builder: Builder, entries: list[Entry], pool: list[Info], rng: random.Random, debug: dict) -> list[Entry]:
     """Replace every card whose needs are uncovered by a card of the same kind whose needs ARE covered
        (or that has none), keeping the deck size. Runs a few passes because a swap can change other cards' needs."""
@@ -569,21 +616,29 @@ def swap_unmet(builder: Builder, entries: list[Entry], pool: list[Info], rng: ra
             slots = [i for i, e in enumerate(entries) if e.info.name == c.name]
             origin = entries[slots[0]].origin
             support = origin.startswith("support")
-            base = [x for x in rng.sample(pool, min(600, len(pool))) if x.kind == c.kind and x.name != c.name
-                    and deck.counts.get(x.name, 0) < builder.cap(x.name) and builder.normal_ok(x)
-                    and (origin != "generic" or builder.rating_ok(x))]               # only generic filler obeys the rating limits
-            cand = []
-            for x in base:                                                  # only cards that are fine in this deck
-                f, partner = builder.eval_needs(x, deck, pool, scan_partners=False)
-                fit = builder.archetype_fit(x, deck) == 1.0
-                if f >= 1.0 and partner is None and fit and not builder.junk(x, deck) and (not support or builder.synergy(x, deck) > 0 or x.generic):
-                    cand.append((builder.level_bias(x, deck) * f * builder.help_factor(x, deck), x))
-            near = {x.name for x in builder.rating_tier([x for _, x in cand])}  # nearest the rating limits first
-            cand = [y for y in cand if y[1].name in near]
+            if c.name in builder.theme_names:                               # a real member of the deck's theme:
+                cand = _theme_swaps(builder, c, deck, pool)                 # only another card of the SAME theme may replace it
+            else:
+                base = [x for x in rng.sample(pool, min(600, len(pool))) if x.kind == c.kind and x.name != c.name
+                        and deck.counts.get(x.name, 0) < builder.cap(x.name) and builder.normal_ok(x)
+                        and (origin != "generic" or builder.rating_ok(x))]           # only generic filler obeys the rating limits
+                cand = []
+                for x in base:                                              # only cards that are fine in this deck
+                    f, partner = builder.eval_needs(x, deck, pool, scan_partners=False)
+                    fit = builder.archetype_fit(x, deck) == 1.0
+                    if f >= 1.0 and partner is None and fit and not builder.junk(x, deck) and (not support or builder.synergy(x, deck) > 0 or x.generic):
+                        cand.append((builder.level_bias(x, deck) * f * builder.help_factor(x, deck), x))
+                near = {x.name for x in builder.rating_tier([x for _, x in cand])}   # nearest the rating limits first
+                cand = [y for y in cand if y[1].name in near]
             if not cand:
-                continue                                                    # nothing better: leave the card in place
-            left = len(slots)
-            removed = {i for i in slots}
+                continue                                                    # nothing better: leave the card in place (theme cards stay)
+            # Only take out as many copies as the candidates can replace (a small theme may have room for just 1-2),
+            # so the deck never shrinks; any copies left over simply stay.
+            room = sum(max(0, builder.cap(x.name) - deck.counts.get(x.name, 0)) for _, x in cand)
+            left = min(len(slots), room)
+            if left <= 0:
+                continue                                                    # no copies can be replaced: leave it
+            removed = set(slots[:left])                                     # the copies being replaced
             new_entries = [e for i, e in enumerate(entries) if i not in removed]
             while left > 0 and cand:
                 w, x = rng.choices(cand, weights=[y[0] for y in cand])[0]
@@ -593,6 +648,8 @@ def swap_unmet(builder: Builder, entries: list[Entry], pool: list[Info], rng: ra
                 deck.counts[x.name] = deck.counts.get(x.name, 0) + n
                 left -= n
                 cand = [y for y in cand if y[1].name != x.name]
+            if left > 0:                                                    # ran out of replacements: those copies stay,
+                new_entries += [entries[i] for i in sorted(removed)][:left] # so the deck keeps its size
             entries = new_entries
             swaps.append((c.name, "->", [e.info.name for e in entries if e.reason.startswith(f"swapped in for {c.name}")][:3]))
             deck = restate(entries)                                           # refresh before judging the next card
@@ -649,7 +706,8 @@ def _plan_enablers(builder: Builder, extra_builder: ExtraBuilder, target: Info, 
             if not need.main_deck or builder.cap(need.name) <= counts.get(need.name, 0) or not builder.normal_ok(need):
                 add = None                                             # not allowed in this format (or the Normal toggle is off)
                 break
-            add.append(need)
+            pool_names = {c.name for c in pool}
+            add.append(pick_one(same_card_choices(need, rules, builder, counts, pool_names) or [need], rng))   # Polymerization OR Fusion Substitute
         if add is None or len(add) > ENABLE_PER_TARGET:
             continue                                                   # too expensive: try other picks
         if summon_score(slots, base + [x for x in add if x.kind == "Monster"]) >= FULL_SCORE:
@@ -793,7 +851,7 @@ def _drop_unsummonable(extra_builder: ExtraBuilder, entries: list[Entry], extra:
     while True:                                                             # a monster made from a dropped one goes too
         gone = {e.info.name for e in dropped}
         stuck = [e for e in keep if e.origin != "required" and any(
-                 kind == "name" and value in gone and not any(k.info.name == value for k in keep)
+                 kind == "name" and value in gone and not any(counts_as(k.info, value) for k in keep)
                  for kind, value in requirements(e.info, rules))]
         if not stuck:
             break
@@ -918,6 +976,8 @@ def floodgate_clash(builder: Builder, c: Info, deck: State) -> bool:
 
 def main_card_problem(builder: Builder, rules: Rules, c: Info, deck: State, extra: list[Entry], extra_infos: list) -> str:
     """Why this MAIN deck card is useless in `deck` ('' = it works). `deck` is a State that already holds the card."""
+    if not c.main_deck:
+        return "extra deck card"                                            # Fusion / Synchro / Xyz / Link: can't be in the Main Deck
     if not strict_need_ok(builder, c, deck, extra_infos):
         return "strict need"
     if any(not satisfied(i, deck, extra) for i in requirements(c, rules)):
@@ -988,6 +1048,15 @@ def _replacement(builder: Builder, rules: Rules, removed: Info, origin: str, ent
        (the deck's own archetype is far likelier). If none works, a plain clean card of that kind (no needs at all)."""
     deck = restate(entries)
     extra_infos = list({e.info.name: e.info for e in extra}.values())
+    if removed.name in builder.theme_names:                                 # a theme card has to go: try its own theme first
+        same = []
+        for x in pool:                                                      # every card of the theme, same kind, that works here
+            if (x.name in builder.theme_names and x.kind == removed.kind and x.main_deck and x.name != removed.name
+                    and deck.counts.get(x.name, 0) < builder.cap(x.name) and builder.normal_ok(x) and not builder.junk(x, deck)
+                    and not main_card_problem(builder, rules, x, restate(entries + [Entry(x, origin)]), extra, extra_infos)):
+                same.append((builder.level_bias(x, deck) * builder.help_factor(x, deck), x))
+        if same:
+            return rng.choices([x for _, x in same], weights=[max(w, 1e-6) for w, _ in same])[0]
     base = [x for x in rng.sample(pool, min(LAST_SAMPLE, len(pool)))
             if x.kind == removed.kind and x.main_deck and x.name != removed.name
             and deck.counts.get(x.name, 0) < builder.cap(x.name) and builder.normal_ok(x)
@@ -1033,12 +1102,14 @@ def _repair(builder: Builder, rules: Rules, entries: list[Entry], extra: list[En
             continue                                                        # nothing named to add (or too much)
         adds = []                                                           # the cards to add, one copy each
         for kind, value in missing:
-            if kind == "name":                                              # a card by name: that exact card
+            if kind == "name":                                              # a card by name: it, or a card that counts as it
                 info = rules.by_name.get(norm(value))
-                if info is None or not info.main_deck or info.name not in allowed or deck.counts.get(info.name, 0) >= builder.cap(info.name) \
-                        or not builder.normal_ok(info):
+                choices = same_card_choices(info, rules, builder, deck.counts, allowed) if info is not None else []
+                choices = [x for x in choices if x.name in allowed]
+                if not choices:
                     adds = None                                             # Extra Deck card / not allowed / at its limit / Normal toggle
                     break
+                info = pick_one(choices, rng)                               # Polymerization OR Fusion Substitute
             else:                                                           # 'any card of archetype X': one that works here
                 cands = [x for x in pool if value in x.facts["archetype"] and x.main_deck and deck.counts.get(x.name, 0) < builder.cap(x.name)
                          and builder.normal_ok(x)]
@@ -1056,7 +1127,7 @@ def _repair(builder: Builder, rules: Rules, entries: list[Entry], extra: list[En
                 n = e.info.name
                 if len(victims) == len(adds):
                     break
-                if e.origin != origin or n == name or n in needed_by or i in victims:
+                if e.origin != origin or n == name or i in victims or any(counts_as(e.info, v) for v in needed_by):
                     continue                                                # wrong kind of card / the card we repair / required
                 if n not in safe:                                           # would anything stop working without it?
                     safe[n] = _dependents(builder, rules, entries, extra, {n}) == {n}
@@ -1232,7 +1303,8 @@ def export_deck(deck: Deck, prefix: str, verbose: bool = True) -> tuple[str, str
         i += 1
 
     def cid(e: Entry) -> str:
-        return (next(iter(e.info.row.values()), "") or "").strip()         # 'Card Id' is the first column
+        row = e.info.row
+        return (row.get("Card Id") or next(iter(row.values()), "") or "").strip()   # by column NAME (first column as a fallback)
 
     with open(base.with_suffix(".ydk"), "w", encoding="utf-8", newline="\n") as f:       # EDOPro format
         f.write("#created by ygo_randomizer\n#main\n")

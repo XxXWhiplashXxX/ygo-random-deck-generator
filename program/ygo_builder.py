@@ -51,6 +51,7 @@ from typing import Optional
 from dataclasses import replace
 
 import ygo_paths as P                                   # where the 'forbidden lists' folder is
+from ygo_labels import theme_labels                      # the labels a deck theme can be (shared with the GUI and website)
 from ygo_banlist import load_banlists, load_staples, load_points, copies_allowed, released_by   # banlists (Forbidden / Limited / Semi-Limited)
 from ygo_data import (                                  # everything we built in step 1
     read_csv, load_tree, parse_expr, parse_atom, is_mechanic, mechanic_label,
@@ -206,6 +207,9 @@ class Info:
     era: Optional[int]
     rating: float
     clean: bool = False                                  # truly generic: no archetype, no named cards, nothing specific needed
+    aliases: tuple = ()                                  # other names this card counts as, SAME deck section only (Builder fills it):
+                                                         # Fusion Substitute -> ('Polymerization',). NOT Marine Dolphin -> Aqua Dolphin:
+                                                         # NEX monsters share a name with a Main Deck card, but they are Extra Deck cards
 
 
 def is_clean(r: dict, facts: dict, extra: bool, no_needs: bool, names_friends: bool = False, ignore_text: bool = False) -> bool:
@@ -430,6 +434,13 @@ class Builder:
         self.infos = build_infos(rows)                   # all cards, pre-digested
         self._partner_cache: dict = {}                   # trait-branch -> list of Infos that satisfy it
         self.by_name = {norm(i.name): i for i in self.infos}                     # normalised name -> card
+        for i in self.infos:                                                     # each card's alias names, kept only when that
+            same = set()                                                         # card lives in the same deck (Main / Extra) -
+            for n in (i.row.get("alias") or "").split("||"):                     # so an alias can never move an Extra Deck card
+                other = self.by_name.get(norm(n)) if n.strip() else None         # into the Main Deck, or the other way round
+                if other is not None and other.name != i.name and other.main_deck == i.main_deck:
+                    same.add(other.name)
+            i.aliases = tuple(sorted(same))
         self.arche_names = {a for i in self.infos for a in i.facts["archetype"]}   # every archetype that exists
         self._frac: dict = {}                            # branch -> share of all main-deck cards it matches (for `rarity`)
         self._refs: dict = {}                            # card name -> [("card", name) / ("arche", archetype)] it mentions
@@ -1139,28 +1150,47 @@ class Builder:
         return rng.choice(good) if good else ""
 
    
-    def random_theme(self, pool: list[Info], rng: random.Random) -> str:
-        """Choose uniformly from the combined pool of supported random theme labels."""
-        prefixes = (
-            "Archetype = ",
-            "Series = ",
-            "Alternative Win Condition = ",
-            "Attribute = ",
-            "Type = ",
-            "Trait = ",
-        )
+    def _theme_index(self) -> dict:
+        """{(field, value): {card names}} for every card, built once (under a second) and then kept.
+           A theme label like 'Archetype = Blackwing' matches a card exactly when the card's facts hold that
+           value (trait_atom_true), so looking it up here gives the same answer as theme_bucket(), instantly."""
+        if getattr(self, "_theme_idx", None) is None:
+            idx: dict = {}
+            for c in self.infos:                                           # main AND Extra Deck cards
+                for field_name, values in c.facts.items():
+                    if isinstance(values, (set, frozenset)):               # text facts (numbers like ATK are not themes)
+                        for v in values:
+                            idx.setdefault((field_name, v), set()).add(c.name)
+            self._theme_idx = idx
+        return self._theme_idx
 
-        candidates = {
-            label for label in self.labels
-            if label == "Generic"
-            or any(label.startswith(prefix) for prefix in prefixes)
-        }
+    def theme_has_cards(self, label: str, legal: set) -> bool:
+        """Does this theme label have at least one card in `legal` (the names this format allows)?"""
+        if label == "Generic":
+            return True                                                    # Generic is never empty
+        if norm(label).startswith(self.WIN_PREFIX):                        # a win condition: its win card must be legal
+            value = label.split("=", 1)[1].strip()
+            target = self.by_name.get(norm(self.WIN_ALIASES.get(norm(value), value)))
+            return target is not None and target.name in legal
+        atom = parse_atom(label)
+        members = self._theme_index().get((atom.field, norm_trait(atom.value)), ())
+        return any(name in legal for name in members)
 
-        # Random means every distinct eligible label gets one entry.
-        candidates.discard("Random")
-        candidates = sorted(candidates, key=str.lower)
-
-        return rng.choice(candidates) if candidates else "Generic"
+    def random_theme(self, pool: list[Info], rng: random.Random, req: Optional["Request"] = None) -> str:
+        """Choose uniformly from the theme labels (the same list the Theme 1 / Theme 2 boxes offer) that have at
+           least one card this format allows. With `req`, Extra Deck cards count too, so an all-Extra-Deck theme
+           (CXyz ...) can still be picked on purpose - it makes a funny deck. A theme with NO legal cards at all
+           (a 2024 archetype in Goat Format) is skipped: it would just be a Generic deck with a wrong name."""
+        legal = {c.name for c in pool}                                     # main-deck cards this format allows
+        if req is not None:
+            legal |= {c.name for c in self.allowed(req, extra=True, rated=False)}   # + Extra Deck (ratings don't matter for themes)
+        candidates = sorted(set(theme_labels(self.labels)) - {"Random"}, key=str.lower)   # each label once, A-Z
+        while candidates:
+            pick = rng.choice(candidates)                                  # same first roll as before ...
+            if self.theme_has_cards(pick, legal):
+                return pick                                                # ... and kept when it has legal cards
+            candidates.remove(pick)                                        # otherwise drop it and roll again
+        return "Generic"
 
 
     # ---- the whole deck --------------------------------------------------
@@ -1178,10 +1208,10 @@ class Builder:
         theme2_label = req.deck_type_2_label
 
         if norm(theme1_label or "") == "random":
-            theme1_label = self.random_theme(pool, rng)
+            theme1_label = self.random_theme(pool, rng, req)
 
         if norm(theme2_label or "") == "random":
-            theme2_label = self.random_theme(pool, rng)
+            theme2_label = self.random_theme(pool, rng, req)
         resolved_req = replace(req,deck_type_1_label=theme1_label,deck_type_2_label=theme2_label,)
         deck = self._new_deck(resolved_req)                                               # 1. an empty deck with its type targets
         pre, wincon_bucket, wdebug = self._place_wincons(resolved_req, pool, rng, pre)

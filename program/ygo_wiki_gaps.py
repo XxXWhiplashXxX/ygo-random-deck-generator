@@ -23,7 +23,7 @@ def section_links(text):
     heads = [(m.start(), m.end(), len(m.group(1)), m.group(2).strip())             # (start, end, level, heading text)
              for m in re.finditer(r"^(=+)\s*(.*?)\s*\1\s*$", text, re.M)]          # '== Members ==' -> level 2
     out = []
-    for i, (start, end, level, title) in enumerate(heads):
+    for i, (_start, end, level, title) in enumerate(heads):
         low = title.lower()
         if "recommended" in low or not ("member" in low or "related" in low):      # only Members / Related sections
             continue

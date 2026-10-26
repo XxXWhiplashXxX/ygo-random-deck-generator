@@ -88,7 +88,7 @@ def load_banlists(folder: Path) -> dict:
 
 def card_ids(row: dict) -> list:
     """Every Id a card goes by: its 'Card Id' plus the 'other ids' column (alternate arts), without leading zeros."""
-    first = next(iter(row.values()))                              # 'Card Id' is the first column
+    first = row.get("Card Id") or next(iter(row.values()), "")   # by column NAME (first column as a fallback for old files)
     ids = [first] + (row.get("other ids") or "").split()
     return [str(int(i)) for i in ids if i.strip().isdigit()]
 

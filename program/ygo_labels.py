@@ -32,6 +32,21 @@ def load_labels(label_csv: Path, mechanics_csv: Path) -> list[str]:
     return ["Random", "Generic"] + alpha
 
 
+# The kinds of label a deck THEME can be. 'Random' picks from exactly these (plus 'Generic'), and the Theme 1 / Theme 2
+# boxes offer exactly these, so the two can never disagree. (Support boxes still offer every label.)
+THEME_PREFIXES = ("Archetype = ", "Series = ", "Alternative Win Condition = ", "Attribute = ", "Type = ", "Trait = ")
+
+
+def is_theme_label(label: str) -> bool:
+    """True for 'Generic' and every label of a THEME_PREFIXES kind."""
+    return label == "Generic" or label.startswith(THEME_PREFIXES)
+
+
+def theme_labels(labels: list[str]) -> list[str]:
+    """The Theme 1 / Theme 2 choices: 'Random' first, then every theme label in the same (A-Z) order as `labels`."""
+    return ["Random"] + [lab for lab in labels if is_theme_label(lab)]
+
+
 def strip_display(label: str) -> str | None:
     """Undo the display-only ' (opponent)' suffix; blank -> None."""
     s = (label or "").strip()

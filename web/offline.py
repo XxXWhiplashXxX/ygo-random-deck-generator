@@ -1,41 +1,66 @@
-"""Local-only website: the same UI/engine as Render, with a local card updater.
-Run with: python web/offline.py. NEVER serve this module on a public host.
+"""Local-only website: the same page and engine as the public site, plus a card-database updater.
+
+Run with:  python web/offline.py   (or double-click 'Yu-Gi-Oh Randomizer.pyw')
+NEVER serve this module on a public host: the updater rewrites files on this computer.
 """
-import socket
-import sys
-import threading
-import traceback
-import webbrowser
-from pathlib import Path
+import logging                                   # prints errors to the console window
+import socket                                    # finds a free port to run on
+import sys                                       # lets us add program/ to the import path
+import threading                                 # runs the updater in the background; locks shared state
+import traceback                                 # turns an error into readable text for the updater log
+import webbrowser                                # opens the page in the default browser
+from contextlib import asynccontextmanager       # builds the 'run this at startup' hook
+from pathlib import Path                         # file paths
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Request   # web framework, error replies, and the incoming request
+from fastapi.responses import FileResponse, HTMLResponse   # reply with a file / with HTML text
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'program'))
-import ygo_paths as P
-import ygo_update as U
-import ygo_formats_update as F
-import app as main_web
+ROOT = Path(__file__).resolve().parents[1]       # the project folder
+sys.path.insert(0, str(ROOT / 'program'))        # so 'import ygo_...' finds the engine files
+import ygo_paths as P                            # where data/ is
+import ygo_update as U                           # card database updater
+import ygo_formats_update as F                   # banlist / staples updater
+import app as main_web                           # the public website's app (web/app.py)
 
-offline_app = FastAPI(title='Yu-Gi-Oh! Randomizer — Offline')
-state_lock = threading.Lock()
+LOCAL_HOSTS = ('127.0.0.1', 'localhost')         # the only addresses the updater answers to
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    """Preload the deck engine at startup. (A mounted app's own startup hook doesn't run, so we do it here.)"""
+    threading.Thread(target=main_web.warm_up, daemon=True).start()
+    yield
+
+
+offline_app = FastAPI(title='Yu-Gi-Oh! Randomizer — Offline', lifespan=lifespan)
+
+# ---------------------------------------------------------------------------
+# Updater state (read by the page every 1.2 seconds while an update runs)
+# ---------------------------------------------------------------------------
+state_lock = threading.Lock()                    # the updater thread and web requests both touch `state`
 state = {'busy': False, 'phase': 'idle', 'logs': [], 'check': None, 'error': None}
+MAX_LOG_LINES = 600                              # keep only the newest lines so memory can't grow forever
+
 
 def log(message):
+    """Add one line to the updater log shown on the page."""
     with state_lock:
         state['logs'].append(str(message))
-        state['logs'] = state['logs'][-600:]
+        state['logs'] = state['logs'][-MAX_LOG_LINES:]
+
 
 def finish(error=None):
+    """Mark the current job as done (or failed with `error`)."""
     with state_lock:
         state['error'] = error
         state['busy'] = False
         state['phase'] = 'error' if error else 'done'
 
+
 def run_check():
+    """Background job: is there newer card data, or did the parser change?"""
     try:
-        latest, have, changed = U.check()
+        latest, have, changed = U.check()                         # newest database version, ours, parser changed?
         needs_cards = latest != have or changed
         with state_lock:
             state['check'] = {'latest': latest, 'installed': have,
@@ -43,10 +68,12 @@ def run_check():
         log('Card data update available.' if needs_cards else 'Card data up to date. You can refresh banlists.')
         finish()
     except Exception:
-        log(traceback.format_exc())
+        log(traceback.format_exc())                               # the full error goes into the log on the page
         finish('Could not check for updates. Check your connection and the log.')
 
+
 def run_update(mode):
+    """Background job: rebuild the card database ('cards') or the forbidden lists ('banlists')."""
     try:
         if mode == 'cards':
             log('Rebuilding the card database. Existing files are backed up by the updater.')
@@ -57,17 +84,19 @@ def run_update(mode):
         if ok is False:
             finish('The updater reported a failure. See the log.')
             return
-        # The web engine caches the old CSV; invalidate it only after a successful update.
-        with main_web.lock:
-            main_web.engine = None
+        main_web.reset_caches()                                   # the website forgets the old cards / lists / labels
         log('Update complete. Theme and banlist choices will refresh after you reload the page.')
         finish()
     except Exception:
         log(traceback.format_exc())
         finish('Update failed. See the log for details.')
 
-# Insert only the updater into the *same* HTML file used by the public site.
-# Any future website layout/search/slider changes automatically appear offline.
+
+# ---------------------------------------------------------------------------
+# The page: the public index.html with the updater panel dropped into its placeholder
+# ---------------------------------------------------------------------------
+UPDATER_SLOT = '<div id="updaterSlot"></div>'    # an empty placeholder in index.html (invisible on the public site)
+
 UPDATER_HTML = """<section class="offline-updater panel" id="localUpdater">
   <h3>Offline card database updater</h3>
   <p>Check for new cards or parser changes, and update the local database and forbidden lists.</p>
@@ -80,33 +109,54 @@ UPDATER_HTML = """<section class="offline-updater panel" id="localUpdater">
   <details><summary>Updater log</summary><pre id="updateLog"></pre></details>
 </section>"""
 
+
 @offline_app.get('/')
 def local_home():
+    """The same page as the public site, so every layout change shows up offline automatically."""
     html = (ROOT / 'web/static/index.html').read_text(encoding='utf-8')
-    html = html.replace('</form></aside>', '</form>' + UPDATER_HTML + '</aside>', 1)
+    if UPDATER_SLOT not in html:                                  # fail loudly instead of silently losing the updater
+        raise HTTPException(500, 'index.html is missing the updater placeholder: ' + UPDATER_SLOT)
+    html = html.replace(UPDATER_SLOT, UPDATER_HTML, 1)
     html = html.replace('</body>', '<script src="/static/offline.js"></script></body>', 1)
     return HTMLResponse(html)
 
-def require_local_origin(request: Request):
-    """Block cross-site requests to the privileged updater on localhost."""
-    origin = request.headers.get('origin')
-    if origin and origin != f'{request.url.scheme}://{request.headers.get("host")}':
+
+def require_local_request(request: Request):
+    """Only answer requests made by our own page on this computer.
+
+    - Host must be localhost: blocks 'DNS rebinding', where a website points its own name at 127.0.0.1.
+      (In that trick the Origin and Host match each other, so comparing those two alone isn't enough.)
+    - Origin, when sent, must be this same address: blocks other websites posting to the updater.
+    """
+    host = request.headers.get('host', '')
+    hostname = host.rsplit(':', 1)[0]                             # '127.0.0.1:5123' -> '127.0.0.1'
+    if hostname not in LOCAL_HOSTS:
         raise HTTPException(403, 'Local updater only')
-    if request.headers.get('sec-fetch-site') == 'cross-site':
+    origin = request.headers.get('origin')
+    if origin and origin != f'{request.url.scheme}://{host}':
+        raise HTTPException(403, 'Local updater only')
+    if request.headers.get('sec-fetch-site') == 'cross-site':     # modern browsers label cross-site requests
         raise HTTPException(403, 'Cross-site requests are not allowed')
+
 
 @offline_app.get('/static/offline.js')
 def local_js():
+    """The updater panel's script (only exists in the offline version)."""
     return FileResponse(ROOT / 'web/static/offline.js', media_type='application/javascript')
 
+
 @offline_app.get('/api/local-update/status')
-def status():
+def status(request: Request):
+    """The updater's current state and log, for the page to display."""
+    require_local_request(request)
     with state_lock:
-        return {**state, 'logs': list(state['logs'])}
+        return {**state, 'logs': list(state['logs'])}             # a copy, so it can't change while being sent
+
 
 @offline_app.post('/api/local-update/check')
 def check(request: Request):
-    require_local_origin(request)
+    """Start a background 'is there an update?' check."""
+    require_local_request(request)
     with state_lock:
         if state['busy']:
             raise HTTPException(409, 'Updater is already running.')
@@ -114,9 +164,11 @@ def check(request: Request):
     threading.Thread(target=run_check, daemon=True).start()
     return {'started': True}
 
+
 @offline_app.post('/api/local-update/run/{mode}')
 def update(mode: str, request: Request):
-    require_local_origin(request)
+    """Start a background update: mode is 'cards' or 'banlists'."""
+    require_local_request(request)
     if mode not in ('cards', 'banlists'):
         raise HTTPException(400, 'Unknown update mode')
     with state_lock:
@@ -128,20 +180,25 @@ def update(mode: str, request: Request):
     threading.Thread(target=run_update, args=(mode,), daemon=True).start()
     return {'started': True}
 
-# All deck generation, export data, card pictures, settings and autocomplete are
-# served by the exact same FastAPI app as the public website.
+
+# Everything else (deck generation, card pictures, options, app.js, style.css) is answered
+# by the exact same app as the public website. Routes above are checked first.
 offline_app.mount('/', main_web.app)
 
+
 def serve(open_browser=True):
+    """Start the local server on a free port and open the browser."""
     import uvicorn
-    with socket.socket() as sock:
+    logging.basicConfig(level=logging.INFO)
+    with socket.socket() as sock:                                 # ask the system for any free port ...
         sock.bind(('127.0.0.1', 0))
-        port = sock.getsockname()[1]
+        port = sock.getsockname()[1]                              # ... remember it, then let it go for uvicorn
     if open_browser:
-        threading.Timer(1.2, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()
+        threading.Timer(1.2, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()   # give the server a moment
     print(f'Yu-Gi-Oh! Randomizer running locally at http://127.0.0.1:{port}/')
-    print('Close this terminal to stop the offline website.')
-    uvicorn.run(offline_app, host='127.0.0.1', port=port)
+    print('Close this window to stop the offline website.')
+    uvicorn.run(offline_app, host='127.0.0.1', port=port)        # 127.0.0.1 = only this computer can connect
+
 
 if __name__ == '__main__':
     serve()

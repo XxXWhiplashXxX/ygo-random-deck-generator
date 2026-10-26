@@ -39,7 +39,7 @@ from ygo_builder import Builder                             # main-deck engine
 from ygo_data import read_csv, load_tree                    # data loading
 from ygo_extra import ExtraBuilder                          # extra-deck engine
 from ygo_final import build_deck, export_deck               # whole pipeline + export
-from ygo_labels import load_labels                          # dropdown label lists
+from ygo_labels import load_labels, theme_labels            # dropdown label lists (all / theme-only)
 
 DATA = P.DATA                                               # program/data: cards.csv, Stats.csv, settings ...
 RANDOM_PAD = dict(sticky="w", padx=(8, 0), pady=(4, 0))     # where a row's "Random" tick box sits
@@ -403,8 +403,10 @@ class RandomizerWindow:
         combos = []
         for i, key in enumerate((key1, key2)):
             ttk.Label(df, text=f"{name} {i + 1}:").grid(row=row0 + 2 * i, column=0, sticky="w", pady=(6, 0))
-            cb = ttk.Combobox(df, textvariable=self.V[key], width=34, values=self.labels)
+            choices = theme_labels(self.labels) if name == "Deck Type" else self.labels   # themes: only what Random can pick
+            cb = ttk.Combobox(df, textvariable=self.V[key], width=34, values=choices)
             cb.grid(row=row0 + 2 * i, column=1, sticky="w", pady=(6, 0))
+            cb._theme = name == "Deck Type"              # remembered, so reload_labels() refills it the same way
             attach_autocomplete(cb); combos.append(cb)
         sa, ba = sp.row(df, row0 + 1, False)
         sb, bb = sp.row(df, row0 + 3, True)
@@ -483,7 +485,8 @@ class RandomizerWindow:
         """Re-read the label CSV and refill all four dropdowns."""
         self.labels = load_labels(P.data_file(self.V["label_csv_path"].get()), DATA / "Mechanics.csv")
         for cb in self.combos:
-            cb["values"] = self.labels; cb._all = list(self.labels)
+            choices = theme_labels(self.labels) if getattr(cb, "_theme", False) else self.labels   # theme boxes: theme labels only
+            cb["values"] = choices; cb._all = list(choices)
 
     def save_preset(self) -> None:
         name = simpledialog.askstring("Save Preset", "Preset name:")
@@ -517,7 +520,7 @@ class RandomizerWindow:
             try:
                 if self.engine["path"] != str(path):            # load cards only when the file changed
                     labels = load_labels(P.data_file(vals["label_csv_path"]), DATA / "Mechanics.csv",)
-                    builder = Builder(read_csv(path),load_tree(DATA / "game_mechanics_tree.csv"),labels=self.labels)
+                    builder = Builder(read_csv(path),load_tree(DATA / "game_mechanics_tree.csv"),labels=labels)   # the labels just loaded for this card file (it used to pass the old list by mistake)
                     self.engine.update(path=str(path), builder=builder, extra_builder=ExtraBuilder(builder))
                 deck = build_deck(self.engine["builder"], self.engine["extra_builder"], req)
                 self.root.after(0, lambda: self.show(deck, req, vals))

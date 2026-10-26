@@ -81,7 +81,7 @@ for r in rows:
 
 new_since = (date.today() - timedelta(days=NEW_CARD_DAYS)).isoformat()   # e.g. '2025-10-21'
 changed = 0
-for (era, yr), cards in groups.items():                       # each era + year group on its own
+for (era, _yr), cards in groups.items():                       # each era + year group on its own
     cards.sort(key=lambda r: views[r[id_col]])                # fewest views first
     for i, r in enumerate(cards):
         position = (i + 0.5) / len(cards)                     # where it sits in its group, 0 to 1

@@ -105,7 +105,7 @@ def make_traits(card: dict) -> str:
 # at most ONE request per second, many pages per request (titles joined with |), and keep what we read for
 # about 30 days instead of asking again. Agents that break the rules may be blocked without warning.
 WIKI_API = "https://yugipedia.com/api.php"                         # Yugipedia's API address
-WIKI_HEADERS = {"User-Agent": "YGO-deck-randomizer/1.0 (personal project; josephdahdah@hotmail.ca)"}   # who we are + contact
+WIKI_HEADERS = {"User-Agent": "YGO-deck-randomizer/1.0 (personal project; joe023937@gmail.com)"}   # who we are + contact (same as CONTACT below)
 WIKI_WAIT = 1.0                                                     # seconds between requests (Yugipedia: at most 1 per second)
 WIKI_BATCH = 50                                                     # the API gives at most 50 pages per request
 WIKI_KEEP_DAYS = 30                                                 # a card page read less than this many days ago is not read again
@@ -168,7 +168,8 @@ def field_values(text: str, field: str) -> list:
 
 
 # ---------------------------------------------------------------- downloads and update steps
-HEADERS = {"User-Agent": "YGO-deck-randomizer/1.0 (personal project)"}    # say who we are
+CONTACT = "joe023937@gmail.com"                                          # so site owners can reach us instead of blocking
+HEADERS = {"User-Agent": f"YGO-deck-randomizer/1.0 (personal project; {CONTACT})"}   # say who we are
 
 
 def download(url: str, timeout: int = 30) -> bytes:

@@ -482,7 +482,7 @@ def generate_state(builder: Builder, extra_builder: ExtraBuilder, req: Request):
     pool = builder.allowed(req)
     # Resolve "Random" themes to a real archetype once, so both halves of the deck agree on the theme.
     def resolve(lbl):                                                               # None / "Random" -> a real archetype
-        return builder.random_theme(pool, master) if (lbl is None or norm(lbl) == "random") else lbl
+        return builder.random_theme(pool, master, req) if (lbl is None or norm(lbl) == "random") else lbl
     labels = [resolve(req.deck_type_1_label)]
     if req.deck_type_2_pct > 0 and req.deck_type_1_pct < 100:                       # a second theme only if it gets slots
         labels.append(resolve(req.deck_type_2_label))
@@ -503,10 +503,13 @@ def generate_state(builder: Builder, extra_builder: ExtraBuilder, req: Request):
         deck, d = builder.build_main(main_req, pre=pre)
         debug["materials_reserved"] = sum(n for _, n, _ in pre)
     debug.update(d)
-    forced = list({c.name: c for l in labels for c in builder.wincon_extras(l or "")}.values())   # one Info per name (Info is not hashable)                  # Extra Deck wincons (Number 88 ...) must be in the deck
+    # Extra Deck wincons (Number 88 ...) must be in the deck. A dict keyed by name keeps one Info per name
+    # (Info is not hashable, so a set can't be used).
+    forced = list({c.name: c for l in labels for c in builder.wincon_extras(l or "")}.values())
+    forced = forced[:req.extra_deck_size]                                           # never more than the Extra Deck size (0 = none)
     if forced:
-        have = {e.info.name for e in extra}
-        keep = [e for e in extra if e.info.name not in {c.name for c in forced}]
+        forced_names = {c.name for c in forced}                                     # built once, not once per card
+        keep = [e for e in extra if e.info.name not in forced_names]               # the rest of the Extra Deck, minus the wincons
         room = max(0, req.extra_deck_size - len(forced))
         extra = [Entry(c, "required", f"Extra Deck wincon: {c.name}") for c in forced] + keep[:room]   # 'required' = never pruned
         debug["extra_wincon"] = [c.name for c in forced]
@@ -529,7 +532,7 @@ if __name__ == "__main__":
 
     # (1) How well do we read materials?
     total = readable = 0
-    for name, slots in extra_builder.slots.items():
+    for _name, slots in extra_builder.slots.items():
         for s in slots:
             total += 1
             readable += s.branches is not None or s.extra_kind

@@ -4,35 +4,34 @@ YU-GI-OH! RANDOM DECK GENERATOR — QUICK START
 TWO WAYS TO USE THE GENERATOR
 -----------------------------
 ONLINE WEBSITE
-  When the public site is available, visit its URL (to be added to README.md).
+  When the public site is available, visit its URL (listed in README.md).
   Pick Theme 1 and Theme 2, Main/Extra Deck sizes, and optionally paste a seed.
   Press Generate Deck. Open Advanced Settings for support, allocation, banlist,
-  ratings and other options. The browser supports PNG, YDK and TXT exports.
-  The website runs in your browser; no Python installation is required.
+  ratings and other options. Click or tap a card to see why it was picked.
+  The website supports PNG, YDK and TXT exports. No Python needed.
 
-OFFLINE WINDOWS DESKTOP PROGRAM
-  Extract the whole project, install Python 3.10+ (Python 3.12 recommended),
-  and double-click "Yu-Gi-Oh Randomizer.pyw". Keep program/data and
-  forbidden lists with the launcher. Once installed with its local data,
-  generating decks does not require an internet connection. Updating cards
-  and banlists does require internet access.
+OFFLINE VERSION (WINDOWS)
+  Extract the whole project and install Python 3.10+ (3.12 recommended).
+  Once, in PowerShell from the extracted folder:
+    py -3 -m pip install -r web/requirements.txt
+  Then double-click "Yu-Gi-Oh Randomizer.pyw". It opens the same page as the
+  website in your browser, plus a "Check for New Cards" updater.
+  Keep program/data, forbidden lists and web with the launcher. Generating
+  decks does not need internet; updating cards and banlists does.
 
-LOCAL BROWSER VERSION (OPTIONAL)
-  From the extracted project folder, run:
-    python -m pip install -r web/requirements.txt
-    python web/app.py
-  Then visit http://127.0.0.1:8000 in your browser.
-  Card images may require internet access the first time they are loaded.
+OLD DESKTOP WINDOW (TKINTER)
+  Still included:  py -3 program/ygo_gui.py
+  The reference below describes this window. The website has the same
+  settings, except the Level sliders and presets.
 
-WEB VERSION DEFAULTS
+WEB VERSION DEFAULTS  (set in web/app.py, WEB_DEFAULTS)
   Main Deck: 60       Theme: 50%     Support: 30%     Generic: 20%
   Monsters: 30        Spells: 20     Traps: 10
-  Rating: 3 to 5      Auto select support categories: checked
+  Rating: 2 to 5      Auto select support categories: checked
   Seed: leave blank for random, or paste a known seed to recreate a deck
   using the same settings and card database.
 
-For the GitHub front page, online link, and web instructions, see README.md.
-For Render hosting instructions, see WEB_HOSTING_README.md.
+For the GitHub front page, local web development and Render hosting, see README.md.
 
 --------------------------------------------------------------------------
 
@@ -41,12 +40,14 @@ DETAILED DESKTOP REFERENCE
 
 YU-GI-OH! RANDOM DECK GENERATOR
 ================================
-Double-click "Yu-Gi-Oh Randomizer.pyw" to open the window.
+The old desktop window: run  py -3 program/ygo_gui.py  from the project folder.
+(Double-clicking "Yu-Gi-Oh Randomizer.pyw" opens the newer browser version instead.)
 
 
 1. FOLDERS
 ----------
-  Yu-Gi-Oh Randomizer.pyw     starts the program
+  Yu-Gi-Oh Randomizer.pyw     starts the offline browser version
+  web/                        the browser page and its small web server
   decks/                      every deck you export goes here (.ydk for EDOPro, plus .txt and .csv)
   forbidden lists/            the banlists the Forbidden List dropdown reads (randomizer formats.lflist.conf)
                               (any other .lflist.conf you drop in here shows up in the dropdown too)
@@ -57,7 +58,9 @@ Double-click "Yu-Gi-Oh Randomizer.pyw" to open the window.
 
 2. USING THE WINDOW
 -------------------
-  Deck Theme 1 / 2      what the deck is about: an archetype, a series, a mechanic ... or "Random"
+  Deck Theme 1 / 2      what the deck is about: an archetype, series, Type, Attribute, trait or win condition,
+                        "Generic", or "Random" (the boxes list exactly what Random can pick - including
+                        Extra-Deck-only themes like CXyz, on purpose: they make funny decks)
   Support 1 / 2         extra cards that help the theme (or leave Support off: the builder picks cards
                         that help at least 1/3 of the deck, plus staples)
   Sizes and targets     main deck 40-60, Extra Deck 0-15, how many monsters / spells / traps
@@ -106,6 +109,10 @@ Double-click "Yu-Gi-Oh Randomizer.pyw" to open the window.
 
 3. THE "CHECK FOR NEW CARDS" BUTTON
 -----------------------------------
+  Archetypes and series come from Yugipedia. A YGOPRODeck archetype is used only when Yugipedia says
+  nothing about it and it doesn't duplicate anything (ygo_clean_labels.py, the update's last step: a name
+  Yugipedia calls a series becomes a series, 'zombie' becomes Type = Zombie, 'fossil fusion' -> Fossil ...).
+
   It always checks YGOPRODeck first. If there are new cards it offers a full update (5-10 minutes):
   new cards, their archetypes and series, wiki labels, ratings from page views, release dates and the
   support columns. It offers the same full update when the PROGRAM has changed since your last update
@@ -141,6 +148,9 @@ Double-click "Yu-Gi-Oh Randomizer.pyw" to open the window.
   3. Staples     for a format with deck data, the cards that format's decks really played
                  (e.g. Mystical Space Typhoon in TeleDAD), at the copy count people ran - up to 1/5
                  of the deck
+     A card that really belongs to the theme is protected: if its needs aren't met, it can only be swapped
+     for another card of the SAME theme that works (or it stays). Only a card that truly can't work
+     (step 8) may be replaced by an outside card, and only when no card of its own theme works there.
   4. Filler      cards that help many of the deck's cards, cards linked to them, then plain generic cards
   5. Required    cards the deck's cards need by name (Polymerization, a Ritual Spell, Fusion materials);
                  an Extra Deck card that is needed goes in the Extra Deck
@@ -164,6 +174,9 @@ Double-click "Yu-Gi-Oh Randomizer.pyw" to open the window.
   Every card in the preview shows WHY it was picked, e.g. [staple] :: format staple (in 88% of this
   format's decks), or "last check: replaced X (strict need)". The Debug lines at the bottom list every
   swap (last_check), every repair (last_check_repairs) and anything still useless (still_useless).
+  Cards that are "always treated as" another card count as that card: Fusion Substitute counts as
+  Polymerization (a deck that needs Polymerization gets either one, equally likely, 3 copies between them),
+  and Harpie Lady 1 counts as Harpie Lady.
   Fusion substitutes (King of the Swamp, Goddess with the Third Eye ...) count as Fusion support. The
   supports a card's Yugipedia page lists (e.g. Traptrix -> Trap Hole) are added too when the parser
   missed them, but only if the card's own text names that archetype, Type or Attribute.

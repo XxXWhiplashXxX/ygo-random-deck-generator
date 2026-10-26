@@ -30,20 +30,24 @@ Map of this file
         keep_allowed(), cost_target(), need_exprs() ...   small helpers every matcher shares
         special_summon ... flip_coin_dice   one matcher per group of mechanics; each returns the four lists (ss, gs, sb, gb)
         fill_card()                      one card: tidy its pieces, run every matcher in MATCHERS, build the four columns
-    PART 3  main()                       read the cards, fill every card, check every label exists, write --out
+    PART 3  setup(), main()              setup() loads the two label files (call it first when importing this file);
+                                         main() reads the command line, calls setup(), fills every card, checks every
+                                         label exists, and writes --out. Importing this file runs nothing by itself.
 
 Short names used everywhere:  ss = strictSupports, gs = generalSupports, sb = strictSupportedBy, gb = generalSupportedBy
 """
-import csv, io, re, sys, argparse, collections, functools                      # standard library only, nothing to install
+import csv, io, re, argparse, collections, functools                      # standard library only, nothing to install
 
 # ---------------- configuration: which files to read and write ----------------
-_ap = argparse.ArgumentParser(description="Fill the four support columns of the Yu-Gi-Oh master CSV")   # create the command-line parser (lets you pass file names when running the script)
-_ap.add_argument("--cards", default="cards.csv", help="the master card CSV")   # --cards: the master card CSV to read
-_ap.add_argument("--stats", default="Stats.csv", help="label CSV with traits / archetypes / stats")   # --stats: the label CSV with traits, archetypes and stats
-_ap.add_argument("--mechanics", default="Mechanics.csv", help="label CSV with the mechanic labels and their column flags")   # --mechanics: the label CSV with mechanic labels and which columns each may go in
-_ap.add_argument("--out", default="All Cards Master filled.csv", help="where to write the filled copy")   # --out: where the filled copy is written
-_args = _ap.parse_args()                                             # read the command line
-CARD_CSV, LABEL_CSV, MECH_CSV, OUT_CSV = _args.cards, _args.stats, _args.mechanics, _args.out   # the four paths used below
+# Nothing here runs when another file imports this one: the command line is only read by main(), and the
+# label files are only loaded by setup(). (Importing used to start the whole parser.)
+def parse_args(argv=None):   # parse_args(): the four file names from the command line (argv=None means the real command line)
+    ap = argparse.ArgumentParser(description="Fill the four support columns of the Yu-Gi-Oh master CSV")   # create the command-line parser (lets you pass file names when running the script)
+    ap.add_argument("--cards", default="cards.csv", help="the master card CSV")   # --cards: the master card CSV to read
+    ap.add_argument("--stats", default="Stats.csv", help="label CSV with traits / archetypes / stats")   # --stats: the label CSV with traits, archetypes and stats
+    ap.add_argument("--mechanics", default="Mechanics.csv", help="label CSV with the mechanic labels and their column flags")   # --mechanics: the label CSV with mechanic labels and which columns each may go in
+    ap.add_argument("--out", default="All Cards Master filled.csv", help="where to write the filled copy")   # --out: where the filled copy is written
+    return ap.parse_args(argv)                                       # read the command line
 
 # ================================================================
 # PART 1: label loading, text splitter and trait extraction
@@ -51,14 +55,18 @@ CARD_CSV, LABEL_CSV, MECH_CSV, OUT_CSV = _args.cards, _args.stats, _args.mechani
 
 # ---------------- labels ----------------
 def norm(s): return re.sub(r"\s+", "", s.lower())   # norm(): lowercase and delete all spaces, so "Level = 4" and "level=4" compare equal
-LABELS = {}   # LABELS will map normalised label -> label written exactly as it must appear in the output
-for r in csv.DictReader(open(LABEL_CSV, encoding="utf-8-sig", newline="")):   # loop over every row of the label CSV (Stats and Archetypes)
-    lab = r["Label"].strip()   # the label text of this row, without stray spaces
-    tidy = re.sub(r"\s+", " ", re.sub(r"\s*(=|!=|<=|>=)\s*", r" \1 ", lab))   # put exactly one space around =, !=, <=, >= and collapse repeated spaces
-    LABELS[norm(lab)] = ("Trait" + tidy[5:] if tidy.lower().startswith("trait ") else ("DEF" + tidy[3:] if tidy.lower().startswith("def ") else tidy))   # force the spelling "Trait ..." / "DEF ..." (the CSV mixes cases); every other label is kept as tidied
+LABELS = {}   # LABELS maps normalised label -> label written exactly as it must appear in the output (filled by setup())
+STAT_VALUES = {}   # for ATK and DEF: a sorted list of every number that has a label (filled by setup())
 
-STAT_VALUES = {k: sorted(int(m.group(1)) for lab in LABELS.values() for m in [re.match(k + r" = (\d+)$", lab)] if m)   # for ATK and DEF: a sorted list of every number that has a label ("ATK = 1000" -> 1000)
-               for k in ("ATK", "DEF")}   # build that list once for each of the two stats
+def load_trait_labels(path):   # load_trait_labels(): fill LABELS and STAT_VALUES from the label CSV (Stats and Archetypes)
+    LABELS.clear(); STAT_VALUES.clear()   # empty them first (the same dicts are kept, so every function keeps seeing them)
+    with open(path, encoding="utf-8-sig", newline="") as f:   # open the label CSV (closed again at the end of this block)
+        for r in csv.DictReader(f):   # loop over every row of the label CSV
+            lab = r["Label"].strip()   # the label text of this row, without stray spaces
+            tidy = re.sub(r"\s+", " ", re.sub(r"\s*(=|!=|<=|>=)\s*", r" \1 ", lab))   # put exactly one space around =, !=, <=, >= and collapse repeated spaces
+            LABELS[norm(lab)] = ("Trait" + tidy[5:] if tidy.lower().startswith("trait ") else ("DEF" + tidy[3:] if tidy.lower().startswith("def ") else tidy))   # force the spelling "Trait ..." / "DEF ..." (the CSV mixes cases); every other label is kept as tidied
+    STAT_VALUES.update({k: sorted(int(m.group(1)) for lab in LABELS.values() for m in [re.match(k + r" = (\d+)$", lab)] if m)   # ("ATK = 1000" -> 1000)
+                        for k in ("ATK", "DEF")})   # build that list once for each of the two stats
 
 def stat_label(stat, num, op):   # stat_label(): find a label for "ATK 1800 or less" style text (op is =, <= or >=)
     exact = find_label(stat, num, op)   # first try the exact number
@@ -380,7 +388,7 @@ def _extract_terms(text):   # _extract_terms(): turn the trait words in a text i
     terms = []   # terms will hold the finished expressions
     for g in groups:   # build one or more expressions per group
         alts, noun = [], None   # alts: the alternatives (separated by "or"); noun: the card-type noun of this group
-        for link, (kind, lab, s, e) in g:   # walk through the words of the group with how each is linked
+        for link, (kind, lab, _s, _e) in g:   # walk through the words of the group with how each is linked
             if kind == "noun": noun = lab; continue   # a noun is not added to the list but remembered
             if link == "or" and alts and alts[-1] and alts[-1][-1][0] == kind and not kind.endswith("!=") and kind not in ("block", "stat"):   # "or" between two words of the same kind (e.g. two Attributes) means one slot with several values
                 alts[-1][-1][1].append(lab)   # so add the value to the previous slot
@@ -414,11 +422,14 @@ def _read(path):   # function that reads a CSV file into a list of row dicts
     for enc in ("utf-8-sig", "cp1252"):   # try the encodings in this order (plain UTF-8 first, then Windows-1252)
         try: return list(csv.DictReader(io.StringIO(raw.decode(enc), newline="")))   # decode, parse the CSV and return the rows if the decoding worked
         except UnicodeDecodeError: pass   # wrong encoding -> ignore the error and try the next one
-MECH = {}   # MECH will map a normalised label name -> (label text, which columns it may go in)
-for r in _read(MECH_CSV):   # go through every row of the mechanics CSV
-    lab = re.sub(r"\s+", " ", re.sub(r"\s*=\s*", " = ", r["Label"].strip()))   # tidy the label: single spaces, and exactly one space on each side of '='
-    MECH[norm(lab)] = (lab, {k: r[k].strip().upper() == "TRUE" for k in   # store the label plus a dict of column flags (continues on the next line)
-                             ("strictSupports", "generalSupports", "strictSupportedBy", "generalSupportedBy")})   # the four column names; a cell saying TRUE means that column is allowed
+MECH = {}   # MECH maps a normalised label name -> (label text, which columns it may go in) (filled by setup())
+
+def load_mechanics(path):   # load_mechanics(): fill MECH from the mechanics CSV
+    MECH.clear()   # empty it first (the same dict is kept)
+    for r in _read(path):   # go through every row of the mechanics CSV
+        lab = re.sub(r"\s+", " ", re.sub(r"\s*=\s*", " = ", r["Label"].strip()))   # tidy the label: single spaces, and exactly one space on each side of '='
+        MECH[norm(lab)] = (lab, {k: r[k].strip().upper() == "TRUE" for k in   # store the label plus a dict of column flags (continues on the next line)
+                                 ("strictSupports", "generalSupports", "strictSupportedBy", "generalSupportedBy")})   # the four column names; a cell saying TRUE means that column is allowed
 
 def mech_label(name, column):   # function that checks a label against the column flags
     # return the label text if it exists AND is allowed in this column, else None
@@ -566,7 +577,7 @@ def add_to_hand_labels(text, target_source="", prev=""):   # function: all add-t
 def add_to_hand(pieces):   # function: add-to-hand labels for all pieces of a card
     helps = []                                          # add-to-hand only ever appears as an effect (generalSupports)
     prev = ""   # effect text of the piece before (a one-sentence "Add it to your hand." points at the target named there)
-    for cond, cost, effect in pieces:   # go through every (condition, cost, effect) piece
+    for _cond, cost, effect in pieces:   # go through every (condition, cost, effect) piece
         t = TARGET_RE.search(cost)                      # a target clause in the cost, if any
         helps += add_to_hand_labels(effect, t.group(0) if t else cost, prev); prev = effect   # add the labels found in the effect (the cost's target is the fallback)
     return [], keep_allowed(helps, "generalSupports"), [], []   # the four columns (ss, gs, sb, gb): only generalSupports is ever filled
@@ -585,7 +596,7 @@ def nt_hits(regex, text):   # function: matches of a regex that are real actions
 
 def normal_tribute(pieces):   # function: Normal Summon / Tribute Summon / Tribute labels for a card
     helps, needs = [], []                                           # labels found as effect (helps) / as cost (needs)
-    for cond, cost, effect in pieces:   # go through every (condition, cost, effect) piece
+    for _cond, cost, effect in pieces:   # go through every (condition, cost, effect) piece
         others = [m for m in TRIBUTE_COST.finditer(cost) if not THIS_ONLY.match(cost[m.end():])]   # Tributes of OTHER monsters ("Tribute this card" pays with itself: never a need)
         if others and not TRIBUTE_SUMMON.search(cost):   # a Tribute in the cost that is not a Tribute Summon
             needs.append("Self = Tribute")                          # Tribute paid as a cost -> the deck must be able to do it
@@ -625,7 +636,7 @@ def discard(pieces):   # function: Discard labels for a card (strict needs, gene
     need_strict, helps, need_general = [], [], []                    # strictSupportedBy exprs, generalSupports, generalSupportedBy
     for cond, cost, effect in pieces:                                # every (condition, cost, effect) piece
         lead = cond if re.match(r"\s*(?:once per turn,?\s*)?you (?:can|may) discard", cond, re.I) else ""   # 'You can discard X: effect' keeps its cost in front of the colon
-        for clause, before in discard_clauses(cost + " " + lead):  # ----- cost side: the deck must be able to discard
+        for clause, _before in discard_clauses(cost + " " + lead):  # ----- cost side: the deck must be able to discard
             if OPP_WORDS.search(clause) and not re.search(r"\byour hand\b", clause, re.I):   # the opponent discards in a cost, and it is not 'your hand'
                 need_general.append("Opponent = Discard")            # a cost that makes the opponent discard (very rare)
                 continue   # nothing more to do for this clause
@@ -813,7 +824,7 @@ def resources(pieces):   # mechanics about resources: Pay LP, Detach, counters, 
             if re.match(r"\s*from (?:this (?:face-up )?card|itself)\b", both[m.end():], re.I): continue   # "remove 2 counters from this card": it pays with itself - never a need
             pre = re.sub(r"\b(?:your and )?your opponent's (?:Standby|End|Main|Battle|Draw) Phases?\b", "", both[:m.start()], flags=re.I)   # ("During each of your and your opponent's Standby Phases" only names a time)
             if not (NEG_NEAR.search(pre) or OPP_NEAR.search(pre) or re.search(r"\bopponent'?s?\b", m.group(0), re.I)): gb.append("Self = Remove counters")   # skip negated, opponent-owned or 'opponent's counters' cases, otherwise it is a need
-        for m in ATTACH.finditer(effect):                            # ---- Attach: effect gives strictSupports
+        for _m in ATTACH.finditer(effect):                           # ---- Attach: effect gives strictSupports
             ss.append("Self = Attach Xyz Material")   # each Attach in the effect supports Xyz-material effects
         for m in PLACE_CTR.finditer(effect):                         # ---- Place counters in an effect
             if CTR_ON_SELF.match(effect[m.end():]): continue          # "place 1 Spell Counter on this card": only this card gets them - helps nothing else
@@ -932,7 +943,7 @@ TREATED_AS = re.compile(r"\btreated as an? (Fusion|Synchro|Xyz|Link|Ritual|Pendu
 
 def summon_types(pieces):   # find summon-type actions, material permissions, Pendulum Zone and Field Zone placement
     ss, gs, sb, gb = [], [], [], []                                  # strictSupports, generalSupports, strictSupportedBy, generalSupportedBy
-    for cond, cost, effect in pieces:                                # every (condition, cost, effect) piece
+    for _cond, _cost, effect in pieces:                                # every (condition, cost, effect) piece
         for label, rx in SUMMON_TYPES.items():                       # ---- the summon verb used as an action in an effect
             if [h for h in nt_hits(rx, effect) if not SUMMON_NO.search(effect[:h.start()])]:   # real actions only (not "for a Synchro Summon", "cannot ...")
                 (gs if label == "Self = Flip Summon" else ss).append(label)   # Flip Summon goes to generalSupports, all the other types to strictSupports
@@ -1244,7 +1255,7 @@ def subject_before(text, start, cost):                              # find who a
 def buffs(pieces):                                                   # labels for ATK/DEF changes and protection effects
     ss, gs, sb, gb = [], [], [], []                                  # strictSupports, generalSupports, strictSupportedBy, generalSupportedBy
     prev_eff = ""                                                    # effect text of the piece before ("Select 1 monster your opponent controls." then "It loses 500 ATK.")
-    for cond, cost, effect in pieces:                                # every (condition, cost, effect) piece
+    for _cond, cost, effect in pieces:                                # every (condition, cost, effect) piece
         for m in GAIN_STAT.finditer(effect):                         # ---- Gain ATK / DEF
             subj, selfy = subject_before(effect, m.start(), cost)    # who gains the stat, and is it only this card
             if selfy: continue                                       # self-only buffs don't count
@@ -1372,7 +1383,7 @@ def react_places(words, send):   # react_places(): "the hand or field" -> the ma
 
 def self_reactions(pieces):   # needs for what the player must do TO this card (only conditions are read)
     sb = []   # strictSupportedBy labels
-    for cond, cost, effect in pieces:   # every (condition, cost, effect) piece
+    for cond, _cost, _effect in pieces:   # every (condition, cost, effect) piece
         if not cond: continue   # no condition: nothing reacts
         own_clause = lambda start: re.split(r",", cond[start:])[0]   # the clause a reaction sits in (up to the next comma)
         if EXTRA_ADDED.search(cond): sb.append("Self = Return to Extra Deck")   # "If a card(s) is added to your Extra Deck": needs cards going there
@@ -1409,7 +1420,7 @@ def self_reactions(pieces):   # needs for what the player must do TO this card (
 # ---------------- Tribute needs combined with the Tributed card's traits ----------------
 def tribute_needs(pieces):                                           # "Tribute 1 Fiend monster" -> "Type = Fiend && Self = Tribute"
     sb = []                                                          # strictSupportedBy expressions
-    for cond, cost, effect in pieces:                                # every (condition, cost, effect) piece
+    for _cond, cost, _effect in pieces:                                # every (condition, cost, effect) piece
         for mt in TRIBUTE_COST.finditer(cost):                       # "Tribute 1 Fiend monster", "Tribute 2 Level 4 or lower monsters"
             if TRIBUTE_SUMMON.search(cost): continue                 # "Tribute Summon" is not a Tribute cost
             obj = re.split(r"[;,.:]|\bthen\b|\bto (?:target|add|Special|activate|negate|destroy|draw|return|send|banish)\b", cost[mt.end():])[0]   # what is Tributed
@@ -1754,7 +1765,16 @@ def bad_tokens(expr, known):                                         # list what
     rest = re.sub(r"[\x00()&|\s]+", " ", rest).strip()             # operators / brackets / markers are fine
     return [rest] if rest else []                                    # anything left over is an unknown label, otherwise the list is empty
 
-def main():                                                          # read the master, fill every card, write the result
+def setup(stats_csv, mechanics_csv):                                 # load both label files: call this before using any matcher
+    load_trait_labels(stats_csv)                                     # LABELS + STAT_VALUES
+    load_mechanics(mechanics_csv)                                    # MECH
+    _extract_terms.cache_clear()                                     # its remembered answers were worked out with the old labels
+
+
+def main(argv=None):                                                 # read the master, fill every card, write the result
+    args = parse_args(argv)                                          # the four file names
+    setup(args.stats, args.mechanics)                                # load the labels
+    CARD_CSV, OUT_CSV = args.cards, args.out                         # where to read the cards and write the result
     with open(CARD_CSV, encoding="utf-8-sig", newline="") as f:      # read the master (utf-8, with or without BOM)
         reader = csv.DictReader(f)                                   # rows become dictionaries keyed by column name
         fields = list(reader.fieldnames)                             # keep the original column order

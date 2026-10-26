@@ -38,7 +38,8 @@ YGM_API = "https://www.yugiohmeta.com/api/v1/cards"                     # Yugioh
 MD_STATUSES = ("Forbidden", "Limited 1", "Limited 2", "Limited", "Semi-Limited")   # every status Master Duel has used
 
 # ---- how hard to try --------------------------------------------------------------------------------
-WORKERS = 4                                                               # downloads at the same time (be gentle: 4 at most)
+WORKERS = 1                                                               # downloads at the same time: one (small fan sites)
+POLITE_PAUSE = 1.0                                                        # seconds between requests: about 1 a second
 STAPLES_MINUTES = 15                                                      # most time the staples download may take
 
 # ---- the files we make ------------------------------------------------------------------------------
@@ -86,7 +87,7 @@ def _download_banlists(sources: Path, log) -> None:
                 (sources / f"fl_{name}_{cat}.json").write_bytes(IO.download(url))
             except Exception as e:
                 log(f"    couldn't download {banlist} ({cat}): {e}")
-            time.sleep(0.2)                                               # be polite: a short pause between requests
+            time.sleep(POLITE_PAUSE)                                               # be polite: a short pause between requests
         log(f"    {len(formats)} formats; {len(new)} new ones, {len(wanted)} banlists to download")
         _download_staples(sources, formats, log)
     except Exception as e:
@@ -156,10 +157,10 @@ def _download_staples(sources: Path, formats: list, log) -> None:
         except Exception as e:                                            # a slow or broken page
             return f"failed ({type(e).__name__}) - tried again next update"
         finally:
-            time.sleep(0.2)                                               # be polite: a short pause per worker
+            time.sleep(POLITE_PAUSE)                                      # be polite: about one request a second
 
     def run(jobs: list, what: str) -> int:
-        """Download every job, WORKERS at a time, with one line per finished download. Returns how many worked."""
+        """Download every job, WORKERS at a time (1: these are small fan sites), with one line per finished download. Returns how many worked."""
         began, good = time.time(), 0
         with ThreadPoolExecutor(max_workers=WORKERS) as pool:
             futures = {pool.submit(fetch, job): job for job in jobs}
@@ -211,7 +212,7 @@ def _download_genesys(log) -> None:
             cards += batch
             if len(batch) < size:
                 break
-            time.sleep(0.2)
+            time.sleep(POLITE_PAUSE)
         return cards
 
     try:

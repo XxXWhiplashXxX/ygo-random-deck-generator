@@ -22,7 +22,8 @@ from collections import Counter                         # tallies of failures
 from multiprocessing import Pool                        # build two decks at once
 from pathlib import Path
 
-from ygo_data import read_csv, load_tree, parse_atom, card_matches
+from ygo_data import read_csv, load_tree
+from ygo_labels import load_labels                      # the category list ('Random' themes pick from it)
 from ygo_builder import Builder, Request
 from ygo_extra import ExtraBuilder
 from ygo_final import build_deck, Rules, useless_cards
@@ -34,7 +35,9 @@ B = EB = RULES = None                                   # made once per worker p
 def start():
     """Load the cards once in each worker (takes a few seconds)."""
     global B, EB, RULES
-    B = Builder(read_csv(DATA / "cards.csv"), load_tree(DATA / "game_mechanics_tree.csv"))
+    # The label list MUST be passed in: without it 'Random' has nothing to pick, and every deck became 'Generic'.
+    labels = load_labels(DATA / "Stats.csv", DATA / "Mechanics.csv")
+    B = Builder(read_csv(DATA / "cards.csv"), load_tree(DATA / "game_mechanics_tree.csv"), labels=labels)
     EB = ExtraBuilder(B)
     RULES = Rules(B)
 
@@ -65,8 +68,10 @@ def check(seed: int) -> dict:
     except Exception as e:                              # a crash counts as a failed deck
         return {"seed": seed, "error": repr(e)}
     bad_main, bad_extra = useless_cards(B, EB, RULES, d.main, d.extra)
-    theme = parse_atom(d.debug["themes"][0])                    # e.g. 'Archetype = blackwing'
-    on_theme = sum(1 for e in d.main if card_matches([(theme,)], e.info.facts))   # main-deck copies that ARE the theme
+    theme = d.debug["themes"][0]                                # e.g. 'Archetype = Blackwing' (what Random picked)
+    # Copies that really ARE the theme (its own card list). Counting the 'theme1' label instead would hide cards
+    # that were swapped in for theme cards, since swapped-in cards keep that label.
+    on_theme = sum(1 for e in d.main if e.info.name in B.theme_names)
     bad = [(why, n, sum(1 for e in d.main if e.info.name == n)) for n, why in bad_main.items()]
     bad += [(why, n, sum(1 for e in d.extra if e.info.name == n)) for n, why in bad_extra.items()]
     mons = [e.info for e in d.main if e.info.kind == "Monster"]                  # one Info per main-deck monster copy
@@ -76,7 +81,7 @@ def check(seed: int) -> dict:
     in_range = lambda e: (lo is None or e.info.rating >= lo) and (hi is None or e.info.rating <= hi)
     themed = [e for e in d.main if e.origin.startswith(("theme", "support"))]   # theme + support picks
     return {"in_range": sum(map(in_range, d.main)), "themed": len(themed), "themed_in": sum(map(in_range, themed)), "bands": bands, "stray_normals": stray,"seed": seed, "theme": d.debug.get("themes"), "order": d.debug.get("order"),
-            "main": len(d.main), "extra": len(d.extra), "swaps": len(d.debug.get("last_check", [])), "repairs": len(d.debug.get("last_check_repairs", [])), "theme_share": on_theme / max(1, len(d.main)), "bad": bad}
+            "main": len(d.main), "extra": len(d.extra), "swaps": len(d.debug.get("last_check", [])), "repairs": len(d.debug.get("last_check_repairs", [])), "theme_share": on_theme / max(1, len(d.main)), "theme_kind": theme.split(" = ")[0], "bad": bad}
 
 
 if __name__ == "__main__":
@@ -111,6 +116,7 @@ if __name__ == "__main__":
     print(f"last-check swaps per deck   : average {sum(swaps) / max(1, len(ok)):.1f}, decks with 10+: {sum(1 for s in swaps if s >= 10)}")
     print(f"last-check repairs per deck : average {sum(r.get('repairs', 0) for r in ok) / max(1, len(ok)):.1f}")
     print(f"theme share (main deck)     : average {sum(r['theme_share'] for r in ok) / max(1, len(ok)):.1%}")
+    print("themes tested by kind       :", dict(Counter(r["theme_kind"] for r in ok).most_common()))   # proves Random really varies
     bt = [sum(r["bands"][b] for r in ok) for b in range(3)]                       # all decks' monsters together
     print(f"monster Levels 1-4 / 5-6 / 7+: {' / '.join(f'{x / max(1, sum(bt)):.0%}' for x in bt)}"
           + (f"   (sliders: {'/'.join(map(str, LEVELS))})" if LEVELS else "   (sliders off)"))

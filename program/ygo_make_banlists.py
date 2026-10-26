@@ -174,7 +174,7 @@ if not formats:                                               # Format Library d
 out_lines = ["# Banlists for the Yu-Gi-Oh! randomizer, made by ygo_make_banlists.py",
              "# Sources: EDOPro (github.com/ProjectIgnis/LFLists), Format Library (formatlibrary.com),",
              "#          Master Duel Meta (masterduelmeta.com)", ""]
-for shown, lines in lists:
+for _shown, lines in lists:
     out_lines += lines + [""]
 OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text("\n".join(out_lines), encoding="utf-8")

@@ -22,6 +22,7 @@ Steps (each one is one of the scripts we made, run in order inside a work folder
   11. support columns                                      ygo_fill_supports.py
       + Fusion substitutes tagged as Fusion support        ygo_fusion_substitutes.py
       + supports Yugipedia lists that the parser missed   ygo_wiki_supports.py
+      + duplicate archetypes removed / merged             ygo_clean_labels.py   (Yugipedia first, YGOPRODeck last)
   12. swap: old cards.csv / Stats.csv go to program/backups/, the new ones take their place
   13. the Forbidden Lists, staples and Genesys points      ygo_formats_update.py (if this fails, the card update
                                                            still counts - see that file for what it downloads)
@@ -58,7 +59,7 @@ STAMP_SCRIPTS = ("ygo_add_new_cards.py", "ygo_add_new_archetypes.py", "ygo_merge
                  "ygo_fix_stats.py", "ygo_wiki_series.py", "ygo_wiki_gaps.py", "ygo_wiki_passcode.py",
                  "ygo_add_passcode_matches.py", "ygo_wiki_labels.py", "ygo_series_pages.py", "ygo_set_eras.py",
                  "ygo_rate_by_views.py", "ygo_add_dates.py", "ygo_fill_supports.py", "ygo_fusion_substitutes.py",
-                 "ygo_wiki_supports.py", "ygo_io.py")                                             # (all in program/)
+                 "ygo_wiki_supports.py", "ygo_clean_labels.py", "ygo_io.py")                                             # (all in program/)
 STAMP_DATA = ("Mechanics.csv",)                                           # (in program/data/)
 
 
@@ -149,6 +150,8 @@ def run_update(cards_path: Path, stats_path: Path, log=print) -> bool:
         step("Fusion substitutes count as Fusion support", "ygo_fusion_substitutes.py", "cards_filled.csv")
         step("Yugipedia: adding supports the parser missed", "ygo_wiki_supports.py", "cards_filled.csv")   # needs card_archseries.csv + Stats_new.csv
         step("Archetype-limited Fusion searchers", "ygo_fusion_searchers.py", "cards_filled.csv")
+        # Last: merge or remove duplicate archetypes everywhere (the files above may still use old names)
+        step("Removing duplicate archetypes", "ygo_clean_labels.py", "cards_filled.csv", "Stats_new.csv")
     except Exception as e:                                                # any failure: leave the real files alone
         log(f"!!! Update stopped: {e}")
         log("    Your cards.csv and Stats.csv were NOT changed.")
