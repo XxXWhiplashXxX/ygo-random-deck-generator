@@ -14,6 +14,7 @@ import sys                                       # lets us add the program/ fold
 import threading                                 # locks, so two visitors can't change shared data at once
 import time                                      # measures the gap between image downloads
 import urllib.request                            # downloads card pictures (standard library, nothing to install)
+from dataclasses import replace                  # a copy of the Request with the randomly picked cards filled in
 from contextlib import asynccontextmanager       # builds the 'run this at startup' hook for FastAPI
 from pathlib import Path                         # file paths that work on Windows and Linux
 
@@ -283,6 +284,10 @@ def generate(data: GenerateInput):
         raise HTTPException(500, 'Deck generation failed. Try different settings or another seed.') from exc   # ... the visitor gets a clean message
 
     selected = deck.debug.get('selected_categories', {})          # which real category each slot ended up as
+    picked = deck.debug.get('random_cards', {})                   # 'Random card' picks: {'anchor_card': name, ...}
+    settings.update(picked)                                       # sent back, so the Card 1 / Card 2 boxes show the pick
+    if picked:
+        req = replace(req, **picked)                              # (so the breakdown names the picked cards)
     return {
         'main': [card_json(e) for e in deck.main],
         'extra': [card_json(e) for e in deck.extra],

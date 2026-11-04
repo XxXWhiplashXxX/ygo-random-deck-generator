@@ -217,14 +217,12 @@ function setupLabelSearch(lists) {
 }
 
 // ===================================================================
-// 'Base deck around a single card' box
+// 'Base deck around a single card' boxes (Card 1 and Card 2)
 // ===================================================================
-// Works like the Theme boxes, but there are ~14,000 cards, too many to send to the page at once. So as you type,
+// Like the Theme boxes, but there are ~14,000 cards, too many to send to the page at once. So as you type,
 // the page asks the server for up to 40 matching names (/api/card-names). Unlike the Theme boxes, blank is allowed:
-// a blank box means the mode is off.
-function setupAnchorSearch() {
-  const input = $('anchorCard');
-  const popup = $('anchorSuggestions');
+// a blank box means that theme works as usual.
+function setupCardSearch(input, popup) {
   let visible = [];                                      // the names currently shown
   let active = -1;                                       // which one the arrow keys are on (-1 = none)
   let asked = 0;                                         // numbers each request, so a slow old answer can't replace a newer one
@@ -239,7 +237,7 @@ function setupAnchorSearch() {
   function choose(name) {
     input.value = name;
     close();
-    markOverridden();                                    // grey out the settings this mode replaces
+    markOverridden();                                    // grey out the Theme box this card replaces
   }
 
   function draw() {
@@ -289,13 +287,20 @@ function setupAnchorSearch() {
   input.addEventListener('blur', () => setTimeout(close, 100));   // (a moment, so a click on a name lands first)
 }
 
-// Grey out what the single-card mode overrides (Theme boxes and share, Allocation, Support) while a card is typed in.
-// They still work and are still saved; the server just ignores them while the card box is filled.
+// Both card boxes use the same search; each has its own suggestion list.
+function setupAnchorSearch() {
+  setupCardSearch($('anchorCard1'), $('anchorSuggestions1'));
+  setupCardSearch($('anchorCard2'), $('anchorSuggestions2'));
+  for (const key of ['rand_card_1', 'rand_card_2']) get(key).addEventListener('change', markOverridden);
+}
+
+// Grey out a Theme box while its card box is in use (a name typed in, or Random card ticked).
+// The Theme box still works and is still saved; the server just ignores it while the card is used.
 function markOverridden() {
-  const on = $('anchorCard').value.trim() !== '';
-  const parts = [...['deck1_label', 'deck2_label', 'deck1_pct', 'rand_deck12'].map(k => get(k).closest('label')),
-                 get('deck_type_overall_pct').closest('section'), get('support_on').closest('section')];
-  for (const el of parts) el.classList.toggle('anchor-overridden', on);
+  const card1 = get('anchor_card').value.trim() !== '' || get('rand_card_1').checked;
+  const card2 = get('anchor_card_2').value.trim() !== '' || get('rand_card_2').checked;
+  get('deck1_label').closest('label').classList.toggle('anchor-overridden', card1);
+  get('deck2_label').closest('label').classList.toggle('anchor-overridden', card2);
 }
 
 // ===================================================================

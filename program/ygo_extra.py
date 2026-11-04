@@ -489,76 +489,93 @@ def anchor_materials(builder: Builder, extra_builder: ExtraBuilder, anchor: Info
     return list(found.values())
 
 
-def generate_anchored(builder: Builder, extra_builder: ExtraBuilder, req: Request):
-    """'Base deck around a single card': the same (main State, extra_entries, debug) as generate_state.
-       Always main-first (the Main Deck is built around the card, then the Extra Deck fits that Main Deck).
-       An Extra Deck anchor goes in the Extra Deck at 3 copies (or its format limit) and is never pruned."""
-    master = random.Random(req.seed)                                                # ONE generator drives every choice
-    anchor = builder.anchor_card(req)                                               # raises AnchorError with a clear message
-    own = sorted(anchor.facts["archetype"] - {norm(anchor.name)})                   # its archetype(s)
-    labels = [f"Archetype = {a}" for a in own]                                      # 'on theme' for the Extra Deck picks...
-    if not labels and anchor.facts["type"]:
-        labels = [f"Type = {next(iter(anchor.facts['type']))}"]                     # ...or, with no archetype, its Type
-    builder.anchor_names = {anchor.name} | {n.strip() for n in (anchor.row.get("alias") or "").split("||") if n.strip()}
-    theme_pool = builder.allowed(req, rated=False)
-    builder.theme_names = {anchor.name} | {c.name for c in theme_pool if c.facts["archetype"] & set(own)}   # (Normal toggle, swaps)
-    main_req = Request(**{**req.__dict__, "seed": master.getrandbits(32)})
-    rng_extra = random.Random(master.getrandbits(32))
-    mats = [] if anchor.main_deck else anchor_materials(builder, extra_builder, anchor, req)
-    deck, d = builder.build_anchored(main_req, materials=mats)
-    extra_req = replace(req, extra_match_main_ratio=False)                          # (no theme / generic sliders in this mode)
-    extra = extra_builder.extra_for_main(extra_req, deck, rng_extra, labels)
-    debug = {"order": "main-first (single-card build)", "themes": labels}
-    debug.update(d)
-    if not anchor.main_deck:                                                        # the anchor itself goes in the Extra Deck
-        n = min(builder.anchor_copies(anchor), req.extra_deck_size)
-        keep = [e for e in extra if e.info.name != anchor.name][:max(0, req.extra_deck_size - n)]
-        extra = [Entry(anchor, "required", f"the card this deck is built around ({n} copies)") for _ in range(n)] + keep
-        debug["anchor_materials"] = len(mats)
-    return deck, extra, debug
+def card_labels(card: Info) -> list:
+    """What counts as 'on theme' for the Extra Deck when a theme slot is a card: its archetype(s), or its Type if it has none."""
+    own = sorted(card.facts["archetype"] - {norm(card.name)})
+    if own:
+        return [f"Archetype = {a}" for a in own]
+    return [f"Type = {next(iter(card.facts['type']))}"] if card.facts["type"] else []
+
+
+def pick_random_cards(builder: Builder, req: Request, master: random.Random) -> tuple[Request, dict]:
+    """'Random card' tick boxes: pick Card 1 / Card 2 with the deck's seeded generator (same seed -> same card), and return
+       the Request with the picked names filled in, plus {'anchor_card': name, 'anchor_card_2': name} for the page to show.
+       A ticked box always rolls, even with a 0% theme share (then the card is just in at 3 copies). The two never match."""
+    picked = {}
+    if req.rand_card_1:
+        picked["anchor_card"] = builder.random_card(req, master, {req.anchor_card_2 or ""})
+    if req.rand_card_2:
+        picked["anchor_card_2"] = builder.random_card(req, master, {picked.get("anchor_card", req.anchor_card or "")})
+    return replace(req, **picked), picked
 
 
 def generate_state(builder: Builder, extra_builder: ExtraBuilder, req: Request):
     """Returns (main State, extra_entries, debug)."""
-    if (req.anchor_card or "").strip():                                             # "base deck around a single card"
-        return generate_anchored(builder, extra_builder, req)
-    builder.anchor_names = set()                                                    # mode off: nothing is protected
     master = random.Random(req.seed)                                                # ONE generator drives every choice
-    order = req.build_order if req.build_order in ("main-first", "extra-first") else master.choice(["main-first", "extra-first"])
+    req, picked = pick_random_cards(builder, req, master)                           # 'Random card' boxes (seeded)
+    cards = builder.anchor_cards(req)                                               # Card 1 / Card 2 (None = that theme is normal)
+    using_cards = any(cards.values())
+    # A card slot is always built main-first: the Main Deck is built around the card, then the Extra Deck fits it.
+    if using_cards:
+        order = "main-first"
+    else:
+        order = req.build_order if req.build_order in ("main-first", "extra-first") else master.choice(["main-first", "extra-first"])
     pool = builder.allowed(req)
     # Resolve "Random" themes to a real archetype once, so both halves of the deck agree on the theme.
     def resolve(lbl):                                                               # None / "Random" -> a real archetype
         return builder.random_theme(pool, master, req) if (lbl is None or norm(lbl) == "random") else lbl
-    labels = [resolve(req.deck_type_1_label)]
-    if req.deck_type_2_pct > 0 and req.deck_type_1_pct < 100:                       # a second theme only if it gets slots
-        labels.append(resolve(req.deck_type_2_label))
+    second = req.deck_type_2_pct > 0 and req.deck_type_1_pct < 100                  # does Theme 2 get any slots?
+    # labels = the theme labels; a card slot has none (shown as None), its card stands in for it
+    labels = [None if cards["theme1"] else resolve(req.deck_type_1_label)]
+    if second or cards["theme2"]:                                                   # a second theme only if it gets slots (or holds a card)
+        labels.append(None if cards["theme2"] else (resolve(req.deck_type_2_label) if second else None))
+    real = [l for l in labels if l and norm(l) not in ("random", "generic")]       # the real theme labels
     # the theme's own cards: the Normal Monsters toggle never removes these (Dark Magician in a Dark Magician deck)
     theme_pool = builder.allowed(req, rated=False)                                  # (theme cards ignore the rating limits)
-    builder.theme_names = {c.name for l in labels if l and norm(l) not in ("random", "generic")
-                           for c in builder.theme_bucket(l, theme_pool)}
-    main_req = Request(**{**req.__dict__, "deck_type_1_label": labels[0],
-                          "deck_type_2_label": labels[1] if len(labels) > 1 else req.deck_type_2_label,
+    builder.theme_names = {c.name for l in real for c in builder.theme_bucket(l, theme_pool)}
+    builder.anchor_names = set()                                                    # the card-box cards: ygo_final never swaps these out
+    extra_labels = list(real)                                                       # 'on theme' for the Extra Deck picks
+    for card in (c for c in cards.values() if c is not None):
+        own = card.facts["archetype"] - {norm(card.name)}
+        builder.theme_names |= {card.name} | {c.name for c in theme_pool if c.facts["archetype"] & own}
+        builder.anchor_names |= {card.name} | {n.strip() for n in (card.row.get("alias") or "").split("||") if n.strip()}
+        extra_labels += card_labels(card)
+    main_req = Request(**{**req.__dict__, "deck_type_1_label": labels[0] if labels[0] else req.deck_type_1_label,
+                          "deck_type_2_label": labels[1] if len(labels) > 1 and labels[1] else req.deck_type_2_label,
                           "seed": master.getrandbits(32)})
     rng_extra = random.Random(master.getrandbits(32))
     debug = {"order": order, "themes": labels}
+    if picked:
+        debug["random_cards"] = picked                                              # web/app.py shows these in the card boxes
     if order == "main-first":
-        deck, d = builder.build_main(main_req)
-        extra = extra_builder.extra_for_main(req, deck, rng_extra, labels)
+        mats = {o: anchor_materials(builder, extra_builder, c, req)                 # Extra Deck card: its Main Deck materials
+                for o, c in cards.items() if c is not None and not c.main_deck}
+        deck, d = builder.build_main(main_req, materials=mats)
+        extra_req = replace(req, extra_match_main_ratio=False) if using_cards else req   # (a card slot has no theme ratio)
+        extra = extra_builder.extra_for_main(extra_req, deck, rng_extra, extra_labels)
     else:
         extra, pre = extra_builder.extra_first(req, labels, rng_extra)
         deck, d = builder.build_main(main_req, pre=pre)
         debug["materials_reserved"] = sum(n for _, n, _ in pre)
     debug.update(d)
-    # Extra Deck wincons (Number 88 ...) must be in the deck. A dict keyed by name keeps one Info per name
+    # Extra Deck card-box cards go in the Extra Deck at 3 copies (or the format's limit) and are never pruned.
+    forced = []
+    for origin, card in cards.items():
+        if card is not None and not card.main_deck:
+            n = builder.anchor_copies(card)
+            who = "Card 1" if origin == "theme1" else "Card 2"
+            forced += [Entry(card, "required", f"{who}: the card this deck is built around ({n} copies)") for _ in range(n)]
+    # Extra Deck wincons (Number 88 ...) must be in the deck too. A dict keyed by name keeps one Info per name
     # (Info is not hashable, so a set can't be used).
-    forced = list({c.name: c for l in labels for c in builder.wincon_extras(l or "")}.values())
+    wins = list({c.name: c for l in real for c in builder.wincon_extras(l)}.values())
+    if wins:
+        debug["extra_wincon"] = [c.name for c in wins]
+    forced += [Entry(c, "required", f"Extra Deck wincon: {c.name}") for c in wins]   # 'required' = never pruned
     forced = forced[:req.extra_deck_size]                                           # never more than the Extra Deck size (0 = none)
     if forced:
-        forced_names = {c.name for c in forced}                                     # built once, not once per card
-        keep = [e for e in extra if e.info.name not in forced_names]               # the rest of the Extra Deck, minus the wincons
-        room = max(0, req.extra_deck_size - len(forced))
-        extra = [Entry(c, "required", f"Extra Deck wincon: {c.name}") for c in forced] + keep[:room]   # 'required' = never pruned
-        debug["extra_wincon"] = [c.name for c in forced]
+        forced_names = {e.info.name for e in forced}                                # built once, not once per card
+        keep = [e for e in extra if e.info.name not in forced_names]               # the rest of the Extra Deck, minus the forced ones
+        extra = forced + keep[:max(0, req.extra_deck_size - len(forced))]
     return deck, extra, debug
 
 

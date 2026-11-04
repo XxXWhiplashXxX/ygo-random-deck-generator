@@ -187,25 +187,28 @@ class Request:
     level_mid_pct: int = 30                              # ... Level 5-6 ...
     level_high_pct: int = 10                             # ... Level 7 or higher (soft targets; they add up to 100)
     allow_normals: bool = True                           # False = no Normal Monsters, except the theme's own
-    # "Base deck around a single card" (Advanced). A card name here OVERRIDES the themes, support and allocation
-    # sliders: the deck is built from that one card's needs, supporters, archetype, Type / Attribute and the cards
-    # it supports (see Builder.build_anchored). Deck sizes, banlist and Highlander still apply.
-    anchor_card: Optional[str] = None                    # None / blank = off (the normal theme build)
+    # "Base deck around a single card" (Advanced). Card 1 replaces Theme 1 and Card 2 replaces Theme 2: that theme's
+    # slots are filled from the card's needs, supporters, archetype, Type / Attribute and the cards it supports
+    # (Builder._fill_card). Support, Generic, sliders, deck sizes, banlist and Highlander all still apply.
+    anchor_card: Optional[str] = None                    # Card 1: replaces Theme 1 (None / blank = off)
+    anchor_card_2: Optional[str] = None                  # Card 2: replaces Theme 2 (None / blank = off)
+    rand_card_1: bool = False                            # 'Random card' ticked for Card 1: the engine picks it (seeded)
+    rand_card_2: bool = False                            # ... for Card 2
 
 
 # --------------------------------------------------------------------------
 # "Base deck around a single card": the numbers that shape it
 # --------------------------------------------------------------------------
 ANCHOR_COPIES = 3             # the chosen card is always played at 3 (a banlist or Highlander can lower it)
-# The fill order, and the share of the free slots each step may use. A step that runs out of cards passes its
-# unused slots on to the NEXT step; whatever is left after the last step goes to the usual staples / filler
-# (_auto_fill, where plain generic cards stay at most GENERIC_CAP of the deck).
-ANCHOR_TIERS = [              # (step key, deck origin it is filed under, share of the free slots, what the report calls it)
-    ("needs",      "support1", 0.20, "what it needs"),
-    ("supporters", "support1", 0.20, "cards that support it"),
-    ("archetype",  "theme1",   0.30, "its archetype"),
-    ("type_attr",  "theme2",   0.15, "its Type / Attribute"),
-    ("supports",   "support2", 0.10, "cards it supports"),
+# The fill order around a card, and the share of its theme slots each step may use. A step that runs out of cards
+# passes its unused slots on to the NEXT step; slots left after the last step cross over to the other theme
+# (build_main), and only then go to the usual staples / filler.
+ANCHOR_TIERS = [              # (step key, share of the card's theme slots, what the report calls it)
+    ("needs",      0.20, "what it needs"),
+    ("supporters", 0.20, "cards that support it"),
+    ("archetype",  0.30, "its archetype"),
+    ("type_attr",  0.15, "its Type / Attribute"),
+    ("supports",   0.15, "cards it supports"),
 ]
 ANCHOR_SPECIFIC_BOOST = 4.0   # a supporter that names the card or its archetype is this many times likelier ...
 ANCHOR_BROAD_BOOST = 1.5      # ... one that supports its Type / Attribute this many times
@@ -903,13 +906,16 @@ class Builder:
         return c, partner
 
     def fill(self, deck: State, bucket: list[Info], pool: list[Info], desired: int,
-             origin: str, label: str, rng: random.Random, need_synergy: bool = False, boost: Optional[dict] = None) -> None:
+             origin: str, label: str, rng: random.Random, need_synergy: bool = False, boost: Optional[dict] = None,
+             fit: Optional[bool] = None) -> None:
         """Add cards from `bucket` until `desired` slots are used (partners use slots too).
-           boost = {card name: multiplier} passed on to pick() (used by the single-card build to favour close supporters)."""
+           boost = {card name: multiplier} passed on to pick() (used by the single-card build to favour close supporters).
+           fit = use the archetype-fit / junk checks; None = decided by origin (support picks yes, theme picks no)."""
+        use_fit = (not origin.startswith("theme")) if fit is None else fit
         attempts = 0
         while desired > 0 and attempts < desired * 40:
             attempts += 1
-            card, partner = self.pick(bucket, deck, pool, rng, use_fit=not origin.startswith("theme"), need_synergy=need_synergy,
+            card, partner = self.pick(bucket, deck, pool, rng, use_fit=use_fit, need_synergy=need_synergy,
                                       boost=boost)
             if card is None:
                 break
@@ -1236,18 +1242,35 @@ class Builder:
             hit = self.by_name.get(norm(found)) if found else None
         return hit
 
-    def anchor_card(self, req: Request) -> Info:
-        """The Request's anchor card, checked: it must exist and be allowed in the chosen format (banlist / release date).
-           Raises AnchorError with a message for the player otherwise."""
-        anchor = self.find_card(req.anchor_card or "")
+    def anchor_card(self, req: Request, text: Optional[str]) -> Optional[Info]:
+        """One card box (Card 1 or Card 2), checked: blank -> None; otherwise the card, which must exist and be
+           allowed in the chosen format (banlist / release date). Raises AnchorError with a message for the player."""
+        if not (text or "").strip():
+            return None                                                               # this box is off
+        anchor = self.find_card(text)
         if anchor is None:
-            raise AnchorError(f'No card named "{req.anchor_card}" was found. Pick a name from the suggestions.')
+            raise AnchorError(f'No card named "{text}" was found. Pick a name from the suggestions.')
         self.set_format(req)                                                          # the copy limits of this format
         if self.cap(anchor.name) <= 0:                                                # Forbidden, or not out by the list's date
             raise AnchorError(f"{anchor.name} is not allowed in {req.banlist or 'this format'}.")
         if not anchor.main_deck and req.extra_deck_size <= 0:                          # an Extra Deck card needs an Extra Deck
             raise AnchorError(f"{anchor.name} is an Extra Deck card, so the Extra Deck size can't be 0.")
         return anchor
+
+    def anchor_cards(self, req: Request) -> dict:
+        """{'theme1': Card 1 or None, 'theme2': Card 2 or None}. Card 1 replaces Theme 1, Card 2 replaces Theme 2."""
+        return {"theme1": self.anchor_card(req, req.anchor_card), "theme2": self.anchor_card(req, req.anchor_card_2)}
+
+    def random_card(self, req: Request, rng: random.Random, taken: set = frozenset()) -> str:
+        """A 'Random card' pick: any card this format allows, inside the era and rating limits (so it isn't junk),
+           from the Main Deck - or the Extra Deck too when the Extra Deck size isn't 0. `taken` = names not to pick
+           (the other card box). Uses the deck's seeded generator, so the same seed picks the same card."""
+        cards = self.allowed(req)                                                     # Main Deck cards (era + rating + format)
+        if req.extra_deck_size > 0:
+            cards = cards + self.allowed(req, extra=True)                             # + Extra Deck monsters
+        cards = [c for c in cards if c.name not in taken] or self.allowed(req, rated=False)   # (nothing rated: ignore ratings)
+        cards = sorted(cards, key=lambda c: c.name)                                   # a fixed order, so the seed decides
+        return rng.choice(cards).name
 
     def anchor_copies(self, anchor: Info) -> int:
         """Always 3 copies, unless the format allows fewer (Limited -> 1, Semi-Limited -> 2, Highlander -> 1)."""
@@ -1319,99 +1342,93 @@ class Builder:
         out["supports"] = ([c for c in others if branches and card_matches(branches, c.facts)], None)
         return out
 
-    def build_anchored(self, req: Request, pre: Optional[list] = None, materials: Optional[list] = None) -> tuple[State, dict]:
-        """The Main Deck for "base deck around a single card". Replaces build_main's theme / support steps:
-             1. the anchor at 3 copies (Main Deck card; an Extra Deck anchor is added by ygo_extra instead)
-             2. each step of ANCHOR_TIERS in order, using at most its share of the free slots (a step that runs
-                short passes its slots on to the next one)
-             3. the usual staples / broad support / linked cards / generic filler for anything still empty
-           materials = Main Deck monsters that can summon an Extra Deck anchor (from ygo_extra)."""
-        rng = random.Random(req.seed)                                                 # the ONE random generator
-        pool = self.allowed(req, rated=False)                                         # (rating only limits generic filler)
-        self.rating_range = (req.min_card_rating, req.max_card_rating)
-        if not pool:
-            raise ValueError("No cards left after the era/rating filters.")
-        size = max(40, min(60, req.main_deck_size))
-        anchor = self.anchor_card(req)                                                # checked: exists and is allowed
-        deck = self._new_deck(req)                                                    # empty deck + Monster / Spell / Trap targets
-        deck.generic_deck = False                                                     # never a 'Generic' deck: it has a centre
-        own = anchor.facts["archetype"] - {norm(anchor.name)}
+    def _place_card(self, deck: State, card: Info, origin: str) -> None:
+        """Put a Main Deck card-box card in at 3 copies (or the format's limit), and make its archetype 'on theme'.
+           (An Extra Deck card goes in the Extra Deck instead - ygo_extra.generate_state does that.)"""
+        own = card.facts["archetype"] - {norm(card.name)}
         deck.arche |= own                                                             # its archetype is 'on theme' (archetype_fit, junk)
         deck.theme_arche |= own
-        for info, n, why in (pre or []):                                              # (wincon-style pre-placed cards, if any)
-            deck.add(info, n, "material", why)
-        if anchor.main_deck:
-            n = self.anchor_copies(anchor)
-            deck.add(anchor, n, "required", f"the card this deck is built around ({n} copies)")   # 'required' = trimmed last
-        buckets = self.anchor_buckets(anchor, pool, materials or [])
-        deck.prefer |= {c.name for key in ("needs", "supporters", "archetype") for c in buckets[key][0]}   # partner picks favour these
+        if card.main_deck:
+            n = self.anchor_copies(card)
+            deck.add(card, n, "required", f"{'Card 1' if origin == 'theme1' else 'Card 2'}: the card this deck is built around ({n} copies)")
 
-        room = max(0, size - len(deck.entries))                                       # free slots after the anchor
-        carry = 0                                                                     # slots an earlier step didn't use
-        plan: dict = {}                                                               # origin -> slots planned (trim() reads this)
-        detail = {}
-        for key, origin, share, what in ANCHOR_TIERS:
+    def _fill_card(self, deck: State, origin: str, slots: int, card: Info, pool: list[Info], rng: random.Random,
+                   materials: list[Info], debug: dict) -> int:
+        """Fill a theme slot (`slots` cards) around ONE card, step by step (ANCHOR_TIERS): what it needs, cards that support
+           it, its archetype, its Type / Attribute, cards it supports. Each step may use its share of the slots; a step that
+           runs short passes its slots to the next one. Returns how many slots it could NOT fill (they cross over to the
+           other theme). materials = Main Deck monsters that can summon it, when it is an Extra Deck card."""
+        buckets = self.anchor_buckets(card, pool, materials)
+        deck.prefer |= {c.name for key in ("needs", "supporters", "archetype") for c in buckets[key][0]}   # partner picks favour these
+        carry, total, notes = 0, 0, []                                                # carry = slots an earlier step didn't use
+        for key, share, what in ANCHOR_TIERS:
             bucket, boost = buckets[key]
-            want = min(round(room * share) + carry, size - len(deck.entries))         # its share + anything passed on to it
+            want = min(round(slots * share) + carry, slots - total)                   # its share + anything passed on to it
             before = len(deck.entries)
             if want > 0 and bucket:
-                self.fill(deck, bucket, pool, want, origin, f"{what} ({anchor.name})", rng,
-                          need_synergy=(key in ("type_attr", "supports")), boost=boost)   # big buckets: prefer linked cards
+                self.fill(deck, bucket, pool, want, origin, f"{what} ({card.name})", rng,
+                          need_synergy=(key in ("type_attr", "supports")),             # big buckets: prefer cards linked to the deck
+                          boost=boost, fit=(key != "archetype"))                       # its own archetype: theme-style picks
             got = len(deck.entries) - before
             carry = max(0, want - got)                                                # unused slots go to the next step
-            plan[origin] = plan.get(origin, 0) + got
-            detail[key] = f"{what}: {got} cards from {len(bucket)} candidates"
-        self._auto_fill(deck, pool, size, rng)                                        # staples, helpers, capped generic filler
-        while len(deck.entries) > size:                                               # partners can overshoot slightly
-            deck.entries.pop()
-        own_label = ", ".join(sorted(own)) or "none"
-        debug = {"size": size, "slots": plan, "anchor": anchor.name, "anchor_steps": detail,
-                 "selected_categories": {"theme1": f"Built around {anchor.name} (archetype: {own_label})",
-                                         "theme2": "its Type / Attribute", "support1": "its needs + cards that support it",
-                                         "support2": "cards it supports"}}
-        for origin, key in (("theme1", "archetype"), ("theme2", "type_attr"), ("support1", "needs"), ("support2", "supports")):
-            debug[origin] = detail[key] + (f"; {detail['supporters']}" if key == "needs" else "")
-        return deck, debug
+            total += got
+            notes.append(f"{what}: {got}")
+        own = ", ".join(sorted(card.facts["archetype"] - {norm(card.name)})) or "none"
+        line = f"{card.name} (archetype: {own}) - " + ", ".join(notes)
+        debug[origin] = (debug[origin] + "; then " + line) if debug.get(origin) else line
+        return max(0, slots - total)
 
     # ---- the whole deck --------------------------------------------------
-    def build_main(self, req: Request, pre: Optional[list] = None) -> tuple[State, dict]:
+    def build_main(self, req: Request, pre: Optional[list] = None, materials: Optional[dict] = None) -> tuple[State, dict]:
         """The main deck, in five steps. pre = [(Info, copies, reason)]: cards to place first (extra-first build
            order: the Extra Deck's materials). Returns (the deck, debug info for the preview).
-           With req.anchor_card set, build_anchored() makes the deck instead (see there)."""
-        if (req.anchor_card or "").strip():
-            return self.build_anchored(req, pre)                                      # "base deck around a single card"
+           Card 1 / Card 2 ('Base deck around a single card'): a card REPLACES its theme slot. It goes in at 3 copies
+           and its theme's slots are filled around it (_fill_card). Theme slots one side can't fill cross over to the
+           other theme first, and only then go to staples / filler. Support, Generic and the sliders work as usual.
+           materials = {'theme1' / 'theme2': Main Deck monsters that can summon that card} for Extra Deck cards."""
         rng = random.Random(req.seed)                                                 # the ONE random generator
         pool = self.allowed(req, rated=False)                                         # theme + synergy cards ignore the rating limits...
         self.rating_range = (req.min_card_rating, req.max_card_rating)               # ...only generic filler obeys them
         if not pool:
             raise ValueError("No cards left after the era/rating filters.")
         size = max(40, min(60, req.main_deck_size))
-        # Resolve Random themes once, before setting up win conditions.
-        theme1_label = req.deck_type_1_label
-        theme2_label = req.deck_type_2_label
+        cards = self.anchor_cards(req)                                                # {'theme1': Card 1, 'theme2': Card 2} (None = off)
+        # Resolve Random themes once, before setting up win conditions. A slot with a card has no theme label at all.
+        theme1_label = None if cards["theme1"] else req.deck_type_1_label
+        theme2_label = None if cards["theme2"] else req.deck_type_2_label
 
-        if norm(theme1_label or "") == "random":
+        if cards["theme1"] is None and norm(theme1_label or "") == "random":
             theme1_label = self.random_theme(pool, rng, req)
 
-        if norm(theme2_label or "") == "random":
+        if cards["theme2"] is None and norm(theme2_label or "") == "random":
             theme2_label = self.random_theme(pool, rng, req)
         resolved_req = replace(req,deck_type_1_label=theme1_label,deck_type_2_label=theme2_label,)
         deck = self._new_deck(resolved_req)                                               # 1. an empty deck with its type targets
+        if any(cards.values()):
+            deck.generic_deck = False                                                 # a deck built around a card is never 'Generic'
         pre, wincon_bucket, wdebug = self._place_wincons(resolved_req, pool, rng, pre)
         for info, n, why in (pre or []):                                              #    pre-placed cards use up slots first
             deck.add(info, n, "material", why)
+        for origin, card in cards.items():                                            #    Card 1 / Card 2 at 3 copies, before the slot plan
+            if card is not None:
+                self._place_card(deck, card, origin)
         t1, t2, s1, s2 = self._slot_plan(req, size, deck)                             # 3. slots for theme 1 / 2, support 1 / 2
+        shown = {o: (f"Card: {c.name}" if c else lbl) for o, c, lbl in (("theme1", cards["theme1"], theme1_label),
+                                                                         ("theme2", cards["theme2"], theme2_label))}
         debug = {"size": size, "slots": {"theme1": t1, "theme2": t2, "support1": s1, "support2": s2},
-                 "selected_categories": {"theme1": theme1_label, "theme2": theme2_label,
-                                         "support1": req.support_1_label, "support2": req.support_2_label}}
+                 "selected_categories": {**shown, "support1": req.support_1_label, "support2": req.support_2_label}}
         if wdebug:
             debug["wincon"] = wdebug
-        for origin, slots, label, is_support in (("theme1", t1, theme1_label, False),
-                                                ("theme2", t2, theme2_label, False),
-                                                ("support1", s1, req.support_1_label, True),
-                                                ("support2", s2, req.support_2_label, True),):
+        if any(cards.values()):
+            self._fill_themes_with_cards(deck, req, cards, (theme1_label, theme2_label), t1, t2, pool, rng,
+                                         wincon_bucket, materials or {}, debug)
+        else:                                                                         # no cards: the themes exactly as before
+            for origin, slots, label in (("theme1", t1, theme1_label), ("theme2", t2, theme2_label)):
+                if slots > 0:
+                    self._fill_label(deck, origin, slots, label, False, pool, rng, wincon_bucket, debug)
+        for origin, slots, label in (("support1", s1, req.support_1_label), ("support2", s2, req.support_2_label)):
             if slots > 0:
-                self._fill_label(deck, origin, slots, label, is_support, pool, rng, wincon_bucket, debug)
+                self._fill_label(deck, origin, slots, label, True, pool, rng, wincon_bucket, debug)
         # Dedicated generic allocation: selected independently of support, with legal standalone cards.
         generic_slots = min(max(0, round(max(0, size - len(pre or [])) * req.generic_overall_pct / 100)), size - len(deck.entries))
         if generic_slots:
@@ -1420,6 +1437,34 @@ class Builder:
         while len(deck.entries) > size:                                               # partners can overshoot slightly
             deck.entries.pop()
         return deck, debug
+
+    def _fill_themes_with_cards(self, deck: State, req: Request, cards: dict, labels: tuple, t1: int, t2: int,
+                                pool: list[Info], rng: random.Random, wincon_bucket: dict, materials: dict, debug: dict) -> None:
+        """Step 4 for the THEME slots when Card 1 and/or Card 2 is used. Each slot is filled around its card, or from its
+           theme label as usual. Then:
+             - slots Theme 1 couldn't fill go to Theme 2 (only if Theme 2 has a share at all),
+             - slots Theme 2 still couldn't fill go back to Theme 1 (only if Theme 1 has a share),
+             - anything left after that is left for the staples / filler at the end (build_main step 5).
+           A card whose slot has a 0% share is still in the deck at 3 copies; nothing is built around it."""
+        def fill_slot(origin: str, slots: int) -> int:
+            """Fill `slots` theme slots for one side; returns how many it could not fill."""
+            if slots <= 0:
+                return 0
+            card = cards[origin]
+            if card is not None:                                                      # a card: build around it
+                return self._fill_card(deck, origin, slots, card, pool, rng, materials.get(origin, []), debug)
+            label = labels[0] if origin == "theme1" else labels[1]
+            before = len(deck.entries)
+            self._fill_label(deck, origin, slots, label, False, pool, rng, wincon_bucket, debug)   # a normal theme
+            return max(0, slots - (len(deck.entries) - before))
+
+        short1 = fill_slot("theme1", t1)                                              # Theme 1 / Card 1 first
+        short2 = fill_slot("theme2", t2 + (short1 if t2 > 0 else 0))                  # Theme 2 / Card 2, plus Theme 1's leftovers
+        if short1 and t2 <= 0:
+            short2 += short1                                                          # (Theme 2 has no share: nowhere to cross to)
+        back = fill_slot("theme1", short2) if (short2 and t1 > 0) else short2         # Theme 2's leftovers back to Theme 1
+        if back:
+            debug["theme_leftover"] = f"{back} theme slots left for staples / filler"
 
     def _new_deck(self, req: Request) -> State:
         """Step 1: an empty deck, with the monster / spell / trap targets (if any were set) and whether it is a

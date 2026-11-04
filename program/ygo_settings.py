@@ -41,7 +41,8 @@ def defaults() -> dict:
         "deck1_pct": 100, "deck2_pct": 0, "deck1_label": "Random", "deck2_label": "Random", "rand_deck12": False,
         "support_on": False, "support1_pct": 100, "support2_pct": 0, "support1_label": "Random", "support2_label": "Random", "rand_support12": False,
         "do_export": False, "export_prefix": "random_deck", "verbose_export": False,
-        "anchor_card": "",                                                  # "Base deck around a single card" (blank = off)
+        "anchor_card": "", "anchor_card_2": "",                             # Card 1 / Card 2: replace Theme 1 / Theme 2 (blank = off)
+        "rand_card_1": False, "rand_card_2": False,                         # 'Random card' boxes (the engine picks, seeded)
     }
 
 
@@ -144,7 +145,9 @@ def make_request(v: dict, banlists: list = ()) -> Request:
         level_low_pct=_int(v.get("level_low_pct", 60), 60), level_mid_pct=_int(v.get("level_mid_pct", 30), 30),
         level_high_pct=_int(v.get("level_high_pct", 10), 10),
         allow_normals=bool(v.get("allow_normals", True)),
-        anchor_card=str(v.get("anchor_card", "") or "").strip() or None,   # blank -> None (mode off; old presets lack the key)
+        anchor_card=str(v.get("anchor_card", "") or "").strip() or None,   # blank -> None (off; old presets lack these keys)
+        anchor_card_2=str(v.get("anchor_card_2", "") or "").strip() or None,
+        rand_card_1=bool(v.get("rand_card_1", False)), rand_card_2=bool(v.get("rand_card_2", False)),
     )
 
 
@@ -152,13 +155,6 @@ def breakdown_text(req: Request) -> str:
     """The 'how many cards go where' lines shown at the top of the preview."""
     total = req.main_deck_size
     fmt = req.banlist or UNLIMITED                                                  # the format line
-    if req.anchor_card:                                                             # single-card build: themes / sliders don't apply
-        return (f"Main deck size: {total}   Extra deck size: {req.extra_deck_size}\n"
-                f"  Built around: {req.anchor_card} (3 copies, or the format's limit)\n"
-                f"  Fill order: what it needs > cards that support it > its archetype > its Type / Attribute > cards it supports,\n"
-                f"  then staples (plain generic cards at most ~15%)\n"
-                f"Format: {fmt}\n"
-                f"Seed: {req.seed}\n")
     theme = int(round(total * req.deck_type_overall_pct / 100.0))
     generic = int(round(total * req.generic_overall_pct / 100.0))
     support = total - theme - generic
@@ -166,8 +162,13 @@ def breakdown_text(req: Request) -> str:
     s1 = int(round(support * req.support_1_pct / 100.0))
     if req.banlist and req.date_pool and re.search(r"\d{4}\.\d{2}\.\d{2}", req.banlist):   # only lists with a date
         fmt += " (only cards released by its date)"
+    card_lines = ""                                                                 # one line per theme slot that holds a card
+    for who, name, rolled in (("Theme 1", req.anchor_card, req.rand_card_1), ("Theme 2", req.anchor_card_2, req.rand_card_2)):
+        if name or rolled:
+            card_lines += f"    {who} replaced by: {name or 'a random card'} (3 copies, or the format's limit)\n"
     return (f"Main deck size: {total}\n"
             f"  Deck Theme total: {theme}  (Deck1: {d1}, Deck2: {theme - d1})\n"
+            + card_lines +                                                          # Card 1 / Card 2 (blank when not used)
             f"  Generic total: {generic}\n"
             + (f"  Support total: {support}  (Support1: {s1}, Support2: {support - s1})\n" if req.support_on else
                f"  Support total: {support}  (Auto: staples + cards that help 1/3 of the deck)\n") +

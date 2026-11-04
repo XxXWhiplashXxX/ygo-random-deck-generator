@@ -25,7 +25,7 @@ A fan-made deck-building challenge that generates randomized **Yu-Gi-Oh! Main an
 5. Click or tap any card to see why it was picked. Use **Export PNG**, **Export YDK**, **Export TXT**, or **Copy decklist**.
 6. **Copy share link** gives a link that rebuilds this exact deck for anyone (with the same card database).
 
-**Base deck around a single card** (in Advanced Settings): type a card name and the whole deck is built around it instead of Themes / Support. The card is played at 3 copies (or the banlist's limit, e.g. 1 in Highlander), then the deck is filled in this order: what it needs, cards that support it, its archetype, its Type / Attribute, and cards it supports, with staples last. An Extra Deck card goes in the Extra Deck, and its materials count as its needs. Deck sizes and the banlist still apply. Leave the box blank to turn it off.
+**Base deck around a single card** (in Advanced Settings): **Card 1** replaces Theme 1 and **Card 2** replaces Theme 2, so you can mix a card with a normal theme, or use two cards. Each card is played at 3 copies (or the banlist's limit, e.g. 1 in Highlander), and its theme's share is filled in this order: what it needs, cards that support it, its archetype, its Type / Attribute, and cards it supports. Slots one theme can't fill go to the other theme first, then to staples and filler. An Extra Deck card goes in the Extra Deck, and its materials count as its needs. Tick **Random card** to let the seed pick the card. Support, Generic, sliders, deck sizes and the banlist all still apply. A blank card box means that theme works as usual.
 
 Open **Advanced Settings** for presets (saved in your browser), allocations, Support categories, era, rating limits, Monster/Spell/Trap targets, Level sliders, and other rules.
 

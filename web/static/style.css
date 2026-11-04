@@ -90,8 +90,8 @@ input.percent-number:not([type=checkbox]):not([type=range]) {
 .level-sliders { padding-left: 4px; }
 
 /* ---------- Searchable Theme / Support boxes ---------- */
-label:has(> .label-search), label:has(> #anchorCard) { position: relative; } /* the suggestion list sits just under its box */
-/* 'Base deck around a single card' is on: the controls it overrides are greyed out (still usable, just ignored) */
+label:has(> .label-search), label:has(> .card-search) { position: relative; } /* the suggestion list sits just under its box */
+/* a Card 1 / Card 2 box is in use: the Theme box it replaces is greyed out (still usable, just ignored) */
 .anchor-overridden { opacity: 0.45; }
 .label-suggestions {
   position: relative;
