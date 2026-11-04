@@ -41,6 +41,7 @@ def defaults() -> dict:
         "deck1_pct": 100, "deck2_pct": 0, "deck1_label": "Random", "deck2_label": "Random", "rand_deck12": False,
         "support_on": False, "support1_pct": 100, "support2_pct": 0, "support1_label": "Random", "support2_label": "Random", "rand_support12": False,
         "do_export": False, "export_prefix": "random_deck", "verbose_export": False,
+        "anchor_card": "",                                                  # "Base deck around a single card" (blank = off)
     }
 
 
@@ -143,18 +144,26 @@ def make_request(v: dict, banlists: list = ()) -> Request:
         level_low_pct=_int(v.get("level_low_pct", 60), 60), level_mid_pct=_int(v.get("level_mid_pct", 30), 30),
         level_high_pct=_int(v.get("level_high_pct", 10), 10),
         allow_normals=bool(v.get("allow_normals", True)),
+        anchor_card=str(v.get("anchor_card", "") or "").strip() or None,   # blank -> None (mode off; old presets lack the key)
     )
 
 
 def breakdown_text(req: Request) -> str:
     """The 'how many cards go where' lines shown at the top of the preview."""
     total = req.main_deck_size
+    fmt = req.banlist or UNLIMITED                                                  # the format line
+    if req.anchor_card:                                                             # single-card build: themes / sliders don't apply
+        return (f"Main deck size: {total}   Extra deck size: {req.extra_deck_size}\n"
+                f"  Built around: {req.anchor_card} (3 copies, or the format's limit)\n"
+                f"  Fill order: what it needs > cards that support it > its archetype > its Type / Attribute > cards it supports,\n"
+                f"  then staples (plain generic cards at most ~15%)\n"
+                f"Format: {fmt}\n"
+                f"Seed: {req.seed}\n")
     theme = int(round(total * req.deck_type_overall_pct / 100.0))
     generic = int(round(total * req.generic_overall_pct / 100.0))
     support = total - theme - generic
     d1 = int(round(theme * req.deck_type_1_pct / 100.0))
     s1 = int(round(support * req.support_1_pct / 100.0))
-    fmt = req.banlist or UNLIMITED                                                  # the format line
     if req.banlist and req.date_pool and re.search(r"\d{4}\.\d{2}\.\d{2}", req.banlist):   # only lists with a date
         fmt += " (only cards released by its date)"
     return (f"Main deck size: {total}\n"

@@ -1012,11 +1012,15 @@ def useless_cards(builder: Builder, extra_builder: ExtraBuilder, rules: Rules, e
     monsters = [e.info for e in entries if e.info.kind == "Monster"]        # one Info per main-deck monster copy
     bad_main = {}
     for c in deck.unique.values():
+        if c.name in builder.anchor_names:
+            continue                                                        # the card the deck is built around always stays
         why = main_card_problem(builder, rules, c, deck, extra, extra_infos)
         if why:
             bad_main[c.name] = why
     bad_extra = {}
     for c in extra_infos:
+        if c.name in builder.anchor_names:
+            continue                                                        # (an Extra Deck anchor stays too)
         if not can_summon(extra_builder, c.name, monsters):
             bad_extra[c.name] = "unsummonable"
         elif any(not satisfied(i, deck, extra) for i in requirements(c, rules)):
@@ -1170,7 +1174,7 @@ def last_check(builder: Builder, extra_builder: ExtraBuilder, entries: list[Entr
         for n, why in bad_extra.items():
             swaps.append(f"Extra Deck: {n} removed ({why})")
         # (2) main deck: the useless cards plus anything that only worked because of them
-        gone = _dependents(builder, rules, entries, extra, set(bad_main))
+        gone = _dependents(builder, rules, entries, extra, set(bad_main)) - builder.anchor_names   # (never the anchor card)
         removed = [e for e in entries if e.info.name in gone]               # every copy that goes, with its origin
         entries = [e for e in entries if e.info.name not in gone]
         for e in removed:                                                   # one replacement per removed copy

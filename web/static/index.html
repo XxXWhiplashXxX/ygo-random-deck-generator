@@ -115,6 +115,20 @@
             </div>
           </section>
 
+          <!-- Base deck around a single card. A name here overrides Theme, Support, Allocation and the other deck-shaping
+               options; only the deck sizes, banlist (incl. Highlander) and staples still apply. Blank = off.
+               app.js fills the suggestion list from /api/card-names as you type (there are too many cards to list up front). -->
+          <section>
+            <h3>Base deck around a single card</h3>
+            <label>Card name
+              <input type="text" name="anchor_card" id="anchorCard" autocomplete="off" role="combobox"
+                     aria-autocomplete="list" aria-expanded="false" placeholder="Type a card name… (blank = off)">
+              <div class="label-suggestions" id="anchorSuggestions" role="listbox" hidden></div>
+            </label>
+            <small id="anchorNote">Fills the deck with what this card needs, cards that support it, its archetype,
+              its Type / Attribute, then cards it supports. Played at 3 copies. Overrides Theme and Support settings.</small>
+          </section>
+
           <!-- Theme + Support + Generic: app.js keeps these at 100% in total. -->
           <section>
             <h3>Allocation <small id="total">100%</small></h3>

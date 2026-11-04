@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT / 'program'))        # so 'import ygo_...' finds the
 import ygo_paths as P                            # where data/ and 'forbidden lists/' are
 import ygo_settings as S                         # defaults, 'Random' rolls, settings -> Request
 from ygo_banlist import load_banlists            # reads the .lflist.conf banlist files
-from ygo_builder import Builder                  # Main Deck engine
+from ygo_builder import Builder, AnchorError     # Main Deck engine, and its 'can't build around that card' error
 from ygo_data import read_csv, load_tree         # loads cards.csv and the mechanics tree
 from ygo_extra import ExtraBuilder               # Extra Deck engine
 from ygo_final import build_deck                 # runs the whole pipeline: Main + Extra
@@ -71,6 +71,7 @@ lock = threading.Lock()          # one deck build at a time: the Builder keeps p
 engine = None                    # (Builder, ExtraBuilder) once loaded; about 5 seconds to build
 _banlists = None                 # list of banlist names
 _labels = None                   # list of Theme / Support category labels
+_card_names = None               # every card name, A-Z (for the 'Base deck around a single card' search box)
 
 
 def get_engine():
@@ -100,13 +101,23 @@ def get_labels() -> list:
     return _labels
 
 
+def get_card_names() -> list:
+    """Every card name, A-Z, worked out from the engine the first time. Call this only while holding `lock`."""
+    global _card_names
+    if _card_names is None:
+        builder = get_engine()[0]
+        _card_names = sorted({i.name for i in builder.infos}, key=str.lower)
+    return _card_names
+
+
 def reset_caches():
     """Forget everything loaded from disk (the offline updater calls this after a successful update)."""
-    global engine, _banlists, _labels
+    global engine, _banlists, _labels, _card_names
     with lock:                                   # wait until any deck being built right now has finished
         engine = None
         _banlists = None
         _labels = None
+        _card_names = None
 
 
 def warm_up():
@@ -182,6 +193,21 @@ def options():
             'eras': S.ERAS, 'orders': S.BUILD_ORDERS}
 
 
+@app.get('/api/card-names')
+def card_names(q: str = ''):
+    """Card names for the 'Base deck around a single card' box: up to 40 names containing what was typed.
+       Names that START with it come first ('Sangan' before 'Sangan's ...'). Too many cards (~14,000) to send
+       to the page all at once, so the page asks as the player types."""
+    typed = q.strip().lower()
+    if len(typed) < 2:
+        return {'names': []}                                          # wait for 2 letters (1 letter matches thousands)
+    with lock:
+        names = get_card_names()
+    starts = sorted((n for n in names if n.lower().startswith(typed)), key=lambda n: n.lower() != typed)   # an exact match first
+    inside = [n for n in names if typed in n.lower() and not n.lower().startswith(typed)]
+    return {'names': (starts + inside)[:40]}
+
+
 # ---------------------------------------------------------------------------
 # Deck generation
 # ---------------------------------------------------------------------------
@@ -250,6 +276,8 @@ def generate(data: GenerateInput):
     try:
         with lock:                                       # one build at a time (see the note on `lock`)
             deck = build_deck(*get_engine(), req)
+    except AnchorError as exc:                           # 'Base deck around a single card' problem: the message says what to fix
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         log.exception('Deck generation failed')          # the full details go to the console / Render log ...
         raise HTTPException(500, 'Deck generation failed. Try different settings or another seed.') from exc   # ... the visitor gets a clean message

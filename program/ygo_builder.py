@@ -187,6 +187,33 @@ class Request:
     level_mid_pct: int = 30                              # ... Level 5-6 ...
     level_high_pct: int = 10                             # ... Level 7 or higher (soft targets; they add up to 100)
     allow_normals: bool = True                           # False = no Normal Monsters, except the theme's own
+    # "Base deck around a single card" (Advanced). A card name here OVERRIDES the themes, support and allocation
+    # sliders: the deck is built from that one card's needs, supporters, archetype, Type / Attribute and the cards
+    # it supports (see Builder.build_anchored). Deck sizes, banlist and Highlander still apply.
+    anchor_card: Optional[str] = None                    # None / blank = off (the normal theme build)
+
+
+# --------------------------------------------------------------------------
+# "Base deck around a single card": the numbers that shape it
+# --------------------------------------------------------------------------
+ANCHOR_COPIES = 3             # the chosen card is always played at 3 (a banlist or Highlander can lower it)
+# The fill order, and the share of the free slots each step may use. A step that runs out of cards passes its
+# unused slots on to the NEXT step; whatever is left after the last step goes to the usual staples / filler
+# (_auto_fill, where plain generic cards stay at most GENERIC_CAP of the deck).
+ANCHOR_TIERS = [              # (step key, deck origin it is filed under, share of the free slots, what the report calls it)
+    ("needs",      "support1", 0.20, "what it needs"),
+    ("supporters", "support1", 0.20, "cards that support it"),
+    ("archetype",  "theme1",   0.30, "its archetype"),
+    ("type_attr",  "theme2",   0.15, "its Type / Attribute"),
+    ("supports",   "support2", 0.10, "cards it supports"),
+]
+ANCHOR_SPECIFIC_BOOST = 4.0   # a supporter that names the card or its archetype is this many times likelier ...
+ANCHOR_BROAD_BOOST = 1.5      # ... one that supports its Type / Attribute this many times
+
+
+class AnchorError(ValueError):
+    """The chosen card can't be built around (not found, Forbidden in this format, Extra Deck size 0 ...).
+       The message is shown to the player as it is, so it is written for them."""
 
 
 # --------------------------------------------------------------------------
@@ -743,6 +770,8 @@ class Builder:
     allow_normals = True
     band_freq = None                                     # share of ALL Main Deck monsters in each band (about 69% / 14% / 17%)
     theme_names: set = set()                             # names of the theme's cards (set per deck by ygo_extra.generate_state)
+    anchor_names: set = set()                            # "build around a single card": that card's name (+ its alias names);
+                                                         # ygo_final never swaps these out. Empty = mode off (set per deck)
 
     @staticmethod
     def level_band(info: Info) -> int:
@@ -874,12 +903,14 @@ class Builder:
         return c, partner
 
     def fill(self, deck: State, bucket: list[Info], pool: list[Info], desired: int,
-             origin: str, label: str, rng: random.Random, need_synergy: bool = False) -> None:
-        """Add cards from `bucket` until `desired` slots are used (partners use slots too)."""
+             origin: str, label: str, rng: random.Random, need_synergy: bool = False, boost: Optional[dict] = None) -> None:
+        """Add cards from `bucket` until `desired` slots are used (partners use slots too).
+           boost = {card name: multiplier} passed on to pick() (used by the single-card build to favour close supporters)."""
         attempts = 0
         while desired > 0 and attempts < desired * 40:
             attempts += 1
-            card, partner = self.pick(bucket, deck, pool, rng, use_fit=not origin.startswith("theme"), need_synergy=need_synergy)
+            card, partner = self.pick(bucket, deck, pool, rng, use_fit=not origin.startswith("theme"), need_synergy=need_synergy,
+                                      boost=boost)
             if card is None:
                 break
             copies = rng.randint(1, min(self.cap(card.name) - deck.counts.get(card.name, 0), desired))
@@ -1193,10 +1224,162 @@ class Builder:
         return "Generic"
 
 
+    # ---- "base deck around a single card" ----------------------------------
+    def find_card(self, text: str) -> Optional[Info]:
+        """The card a player typed: exact name first (any capitals), then old / renamed / garbled names. None = not found."""
+        if not (text or "").strip():
+            return None
+        hit = self.by_name.get(norm(text))                                            # 1. the name as typed
+        if hit is None:
+            from ygo_names import NameResolver                                        # 2. 'Red-Eyes B. Dragon' -> its current name
+            found = NameResolver([i.name for i in self.infos]).find(text)
+            hit = self.by_name.get(norm(found)) if found else None
+        return hit
+
+    def anchor_card(self, req: Request) -> Info:
+        """The Request's anchor card, checked: it must exist and be allowed in the chosen format (banlist / release date).
+           Raises AnchorError with a message for the player otherwise."""
+        anchor = self.find_card(req.anchor_card or "")
+        if anchor is None:
+            raise AnchorError(f'No card named "{req.anchor_card}" was found. Pick a name from the suggestions.')
+        self.set_format(req)                                                          # the copy limits of this format
+        if self.cap(anchor.name) <= 0:                                                # Forbidden, or not out by the list's date
+            raise AnchorError(f"{anchor.name} is not allowed in {req.banlist or 'this format'}.")
+        if not anchor.main_deck and req.extra_deck_size <= 0:                          # an Extra Deck card needs an Extra Deck
+            raise AnchorError(f"{anchor.name} is an Extra Deck card, so the Extra Deck size can't be 0.")
+        return anchor
+
+    def anchor_copies(self, anchor: Info) -> int:
+        """Always 3 copies, unless the format allows fewer (Limited -> 1, Semi-Limited -> 2, Highlander -> 1)."""
+        return min(ANCHOR_COPIES, self.cap(anchor.name))
+
+    @staticmethod
+    def _identity(branch: tuple) -> bool:
+        """True if a support branch names WHAT a card is (name, archetype, series, Type, Attribute, trait), not just
+           'is a Monster' or 'Level 4 or lower'. Those plain branches would match nearly every card."""
+        return any(a.field in ("name", "archetype", "series", "type", "attribute", "trait") for a in branch)
+
+    def anchor_buckets(self, anchor: Info, pool: list[Info], materials: list[Info]) -> dict:
+        """The five groups of cards for a single-card deck, as {step key: (bucket, boost or None)}. In fill order:
+             needs       cards that meet its needs: the trait part of each need (a 'WATER monster'), cards that
+                         ENABLE its mechanic needs (send-to-GY cards for 'Banish (GY)'), and - for an Extra Deck
+                         card - the Main Deck monsters that can be its materials (`materials`)
+             supporters  cards whose Supports column points at it (its name, archetype, Type or Attribute), or
+                         whose text names it / its archetype in quotes
+             archetype   the other cards of its archetype(s)
+             type_attr   monsters of its Type or Attribute (Main Deck monsters only)
+             supports    cards that ARE what it supports (its strictSupports column)
+           The anchor itself is never in a bucket (it is placed first, separately)."""
+        others = [c for c in pool if c.name != anchor.name]                           # the anchor goes in on its own
+        out = {}
+
+        # 1. needs: trait part via partners_for (the same cards a partner pick would use), mechanic part via enablers
+        needs: dict = {c.name: c for c in materials if c.name != anchor.name}         # Extra Deck card: its materials first
+        for branch in anchor.needs:
+            traits = tuple(a for a in branch if not is_mechanic(a))                   # "is a WATER monster" (hard)
+            mechs = [a for a in branch if is_mechanic(a)]                             # "Self = Banish (GY)" (soft)
+            if traits:
+                for c in self.partners_for(traits, others):
+                    needs[c.name] = c
+            for m in mechs:                                                           # a card that makes the mechanic possible:
+                for c in others:                                                      # ask need_status with that ONE card as the 'deck'
+                    if need_status(m, c.offered, c.facts["trait"], self.tree) == "met":
+                        needs[c.name] = c
+        out["needs"] = (list(needs.values()), None)
+
+        # 2. supporters: their Supports column points at the anchor (specific = name / archetype / series: likelier)
+        sup, boost = {}, {}
+        for c in others:
+            best = 0.0
+            for branch in c.helps:
+                t = tuple(a for a in branch if not is_mechanic(a))
+                if t and self._identity(t) and card_matches([t], anchor.facts):      # this branch describes the anchor
+                    specific = any(a.field in ("name", "archetype", "series") for a in t)
+                    best = max(best, ANCHOR_SPECIFIC_BOOST if specific else ANCHOR_BROAD_BOOST)
+            for kind, v in self.refs(c):                                              # its text names the anchor / its archetype
+                if (kind == "card" and v == anchor.name) or (kind == "arche" and v in anchor.facts["archetype"]):
+                    best = max(best, ANCHOR_SPECIFIC_BOOST)
+            if best:
+                sup[c.name], boost[c.name] = c, best
+        out["supporters"] = (list(sup.values()), boost)
+
+        # 3. archetype: every card of its archetype(s) (its own name as an 'archetype' doesn't count)
+        own = anchor.facts["archetype"] - {norm(anchor.name)}
+        out["archetype"] = ([c for c in others if c.facts["archetype"] & own], None)
+
+        # 4. Type / Attribute: Main Deck monsters that share either one (only a monster has these)
+        if anchor.kind == "Monster":
+            out["type_attr"] = ([c for c in others if c.kind == "Monster" and c.main_deck
+                                 and ((c.facts["type"] & anchor.facts["type"]) or (c.facts["attribute"] & anchor.facts["attribute"]))], None)
+        else:
+            out["type_attr"] = ([], None)
+
+        # 5. cards it supports: the cards its strictSupports describe (identity branches only, see _identity)
+        branches = [t for t in (tuple(a for a in br if not is_mechanic(a)) for br in anchor.helps) if t and self._identity(t)]
+        out["supports"] = ([c for c in others if branches and card_matches(branches, c.facts)], None)
+        return out
+
+    def build_anchored(self, req: Request, pre: Optional[list] = None, materials: Optional[list] = None) -> tuple[State, dict]:
+        """The Main Deck for "base deck around a single card". Replaces build_main's theme / support steps:
+             1. the anchor at 3 copies (Main Deck card; an Extra Deck anchor is added by ygo_extra instead)
+             2. each step of ANCHOR_TIERS in order, using at most its share of the free slots (a step that runs
+                short passes its slots on to the next one)
+             3. the usual staples / broad support / linked cards / generic filler for anything still empty
+           materials = Main Deck monsters that can summon an Extra Deck anchor (from ygo_extra)."""
+        rng = random.Random(req.seed)                                                 # the ONE random generator
+        pool = self.allowed(req, rated=False)                                         # (rating only limits generic filler)
+        self.rating_range = (req.min_card_rating, req.max_card_rating)
+        if not pool:
+            raise ValueError("No cards left after the era/rating filters.")
+        size = max(40, min(60, req.main_deck_size))
+        anchor = self.anchor_card(req)                                                # checked: exists and is allowed
+        deck = self._new_deck(req)                                                    # empty deck + Monster / Spell / Trap targets
+        deck.generic_deck = False                                                     # never a 'Generic' deck: it has a centre
+        own = anchor.facts["archetype"] - {norm(anchor.name)}
+        deck.arche |= own                                                             # its archetype is 'on theme' (archetype_fit, junk)
+        deck.theme_arche |= own
+        for info, n, why in (pre or []):                                              # (wincon-style pre-placed cards, if any)
+            deck.add(info, n, "material", why)
+        if anchor.main_deck:
+            n = self.anchor_copies(anchor)
+            deck.add(anchor, n, "required", f"the card this deck is built around ({n} copies)")   # 'required' = trimmed last
+        buckets = self.anchor_buckets(anchor, pool, materials or [])
+        deck.prefer |= {c.name for key in ("needs", "supporters", "archetype") for c in buckets[key][0]}   # partner picks favour these
+
+        room = max(0, size - len(deck.entries))                                       # free slots after the anchor
+        carry = 0                                                                     # slots an earlier step didn't use
+        plan: dict = {}                                                               # origin -> slots planned (trim() reads this)
+        detail = {}
+        for key, origin, share, what in ANCHOR_TIERS:
+            bucket, boost = buckets[key]
+            want = min(round(room * share) + carry, size - len(deck.entries))         # its share + anything passed on to it
+            before = len(deck.entries)
+            if want > 0 and bucket:
+                self.fill(deck, bucket, pool, want, origin, f"{what} ({anchor.name})", rng,
+                          need_synergy=(key in ("type_attr", "supports")), boost=boost)   # big buckets: prefer linked cards
+            got = len(deck.entries) - before
+            carry = max(0, want - got)                                                # unused slots go to the next step
+            plan[origin] = plan.get(origin, 0) + got
+            detail[key] = f"{what}: {got} cards from {len(bucket)} candidates"
+        self._auto_fill(deck, pool, size, rng)                                        # staples, helpers, capped generic filler
+        while len(deck.entries) > size:                                               # partners can overshoot slightly
+            deck.entries.pop()
+        own_label = ", ".join(sorted(own)) or "none"
+        debug = {"size": size, "slots": plan, "anchor": anchor.name, "anchor_steps": detail,
+                 "selected_categories": {"theme1": f"Built around {anchor.name} (archetype: {own_label})",
+                                         "theme2": "its Type / Attribute", "support1": "its needs + cards that support it",
+                                         "support2": "cards it supports"}}
+        for origin, key in (("theme1", "archetype"), ("theme2", "type_attr"), ("support1", "needs"), ("support2", "supports")):
+            debug[origin] = detail[key] + (f"; {detail['supporters']}" if key == "needs" else "")
+        return deck, debug
+
     # ---- the whole deck --------------------------------------------------
     def build_main(self, req: Request, pre: Optional[list] = None) -> tuple[State, dict]:
         """The main deck, in five steps. pre = [(Info, copies, reason)]: cards to place first (extra-first build
-           order: the Extra Deck's materials). Returns (the deck, debug info for the preview)."""
+           order: the Extra Deck's materials). Returns (the deck, debug info for the preview).
+           With req.anchor_card set, build_anchored() makes the deck instead (see there)."""
+        if (req.anchor_card or "").strip():
+            return self.build_anchored(req, pre)                                      # "base deck around a single card"
         rng = random.Random(req.seed)                                                 # the ONE random generator
         pool = self.allowed(req, rated=False)                                         # theme + synergy cards ignore the rating limits...
         self.rating_range = (req.min_card_rating, req.max_card_rating)               # ...only generic filler obeys them

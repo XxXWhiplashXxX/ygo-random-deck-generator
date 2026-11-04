@@ -217,6 +217,88 @@ function setupLabelSearch(lists) {
 }
 
 // ===================================================================
+// 'Base deck around a single card' box
+// ===================================================================
+// Works like the Theme boxes, but there are ~14,000 cards, too many to send to the page at once. So as you type,
+// the page asks the server for up to 40 matching names (/api/card-names). Unlike the Theme boxes, blank is allowed:
+// a blank box means the mode is off.
+function setupAnchorSearch() {
+  const input = $('anchorCard');
+  const popup = $('anchorSuggestions');
+  let visible = [];                                      // the names currently shown
+  let active = -1;                                       // which one the arrow keys are on (-1 = none)
+  let asked = 0;                                         // numbers each request, so a slow old answer can't replace a newer one
+  input.setAttribute('aria-controls', popup.id);
+
+  function close() {
+    popup.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    active = -1;
+  }
+
+  function choose(name) {
+    input.value = name;
+    close();
+    markOverridden();                                    // grey out the settings this mode replaces
+  }
+
+  function draw() {
+    popup.replaceChildren(...visible.map((name, i) => {
+      const item = document.createElement('div');
+      item.className = 'label-option';
+      item.role = 'option';
+      item.id = `${popup.id}-${i}`;
+      item.textContent = name;                           // textContent, never innerHTML: names can't inject HTML
+      item.classList.toggle('active', i === active);
+      // mousedown (not click) fires before the box loses focus, so the choice isn't lost
+      item.addEventListener('mousedown', e => { e.preventDefault(); choose(name); });
+      return item;
+    }));
+    popup.hidden = !visible.length;
+    input.setAttribute('aria-expanded', String(!!visible.length));
+  }
+
+  async function search() {
+    const typed = input.value.trim();
+    const mine = ++asked;                                // this request's number
+    if (typed.length < 2) { visible = []; close(); return; }     // the server waits for 2 letters too
+    try {
+      const res = await fetch('/api/card-names?q=' + encodeURIComponent(typed));
+      const data = await res.json();
+      if (mine !== asked) return;                        // a newer search has started since: ignore this answer
+      visible = data.names || [];
+      active = -1;
+      draw();
+    } catch { close(); }                                 // no answer: just show no suggestions
+  }
+
+  input.addEventListener('input', () => { search(); markOverridden(); });
+  input.addEventListener('focus', search);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { close(); return; }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && visible.length) {
+      e.preventDefault();                                // stop the cursor jumping in the text
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + visible.length) % visible.length;   // wrap around
+      draw();
+      popup.children[active].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && !popup.hidden && visible.length) {
+      e.preventDefault();                                // pick the name instead of submitting the form
+      choose(visible[Math.max(0, active)]);
+    }
+  });
+  input.addEventListener('blur', () => setTimeout(close, 100));   // (a moment, so a click on a name lands first)
+}
+
+// Grey out what the single-card mode overrides (Theme boxes and share, Allocation, Support) while a card is typed in.
+// They still work and are still saved; the server just ignores them while the card box is filled.
+function markOverridden() {
+  const on = $('anchorCard').value.trim() !== '';
+  const parts = [...['deck1_label', 'deck2_label', 'deck1_pct', 'rand_deck12'].map(k => get(k).closest('label')),
+                 get('deck_type_overall_pct').closest('section'), get('support_on').closest('section')];
+  for (const el of parts) el.classList.toggle('anchor-overridden', on);
+}
+
+// ===================================================================
 // Start-up: fill the controls
 // ===================================================================
 async function init() {
@@ -229,6 +311,7 @@ async function init() {
     select.replaceChildren(...values.map(v => new Option(v, v)));
   }
   setupLabelSearch(data);                                // each search box picks its own list from data
+  setupAnchorSearch();                                   // the 'Base deck around a single card' box
   // The server's defaults are the only defaults (web/app.py, WEB_DEFAULTS).
   defaults = data.defaults;
   for (const [key, value] of Object.entries(defaults)) put(key, value);
@@ -247,6 +330,7 @@ async function init() {
 function applySettings(values) {
   for (const [key, value] of Object.entries(values)) put(key, value);
   for (const input of document.querySelectorAll('input.label-search')) input.dataset.lastValid = input.value;
+  markOverridden();                                      // a preset / share link may have a single card in it
   sync();
 }
 

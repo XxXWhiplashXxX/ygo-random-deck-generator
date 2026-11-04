@@ -40,7 +40,7 @@ from __future__ import annotations
 import itertools                                        # product() builds every combination of OR-options
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace          # replace: a copy of a Request with some fields changed
 from typing import NamedTuple
 from pathlib import Path
 from typing import Optional
@@ -475,8 +475,54 @@ class ExtraBuilder:
 # --------------------------------------------------------------------------
 # 4. One call that builds a whole deck in either order
 # --------------------------------------------------------------------------
+def anchor_materials(builder: Builder, extra_builder: ExtraBuilder, anchor: Info, req: Request) -> list[Info]:
+    """Main Deck monsters that can be materials for an Extra Deck anchor (read from its materials line).
+       A slot that takes 'any monster' or another Extra Deck monster adds nothing here."""
+    pool = [c for c in builder.allowed(req, rated=False) if c.kind == "Monster"]   # Main Deck monsters this format allows
+    found: dict = {}
+    for slot in extra_builder.slots.get(anchor.name, []):
+        if slot.extra_kind or slot.branches is None:
+            continue                                                                # nothing concrete to look for
+        for c in pool:
+            if c.name != anchor.name and card_matches(slot.branches, c.facts):
+                found[c.name] = c
+    return list(found.values())
+
+
+def generate_anchored(builder: Builder, extra_builder: ExtraBuilder, req: Request):
+    """'Base deck around a single card': the same (main State, extra_entries, debug) as generate_state.
+       Always main-first (the Main Deck is built around the card, then the Extra Deck fits that Main Deck).
+       An Extra Deck anchor goes in the Extra Deck at 3 copies (or its format limit) and is never pruned."""
+    master = random.Random(req.seed)                                                # ONE generator drives every choice
+    anchor = builder.anchor_card(req)                                               # raises AnchorError with a clear message
+    own = sorted(anchor.facts["archetype"] - {norm(anchor.name)})                   # its archetype(s)
+    labels = [f"Archetype = {a}" for a in own]                                      # 'on theme' for the Extra Deck picks...
+    if not labels and anchor.facts["type"]:
+        labels = [f"Type = {next(iter(anchor.facts['type']))}"]                     # ...or, with no archetype, its Type
+    builder.anchor_names = {anchor.name} | {n.strip() for n in (anchor.row.get("alias") or "").split("||") if n.strip()}
+    theme_pool = builder.allowed(req, rated=False)
+    builder.theme_names = {anchor.name} | {c.name for c in theme_pool if c.facts["archetype"] & set(own)}   # (Normal toggle, swaps)
+    main_req = Request(**{**req.__dict__, "seed": master.getrandbits(32)})
+    rng_extra = random.Random(master.getrandbits(32))
+    mats = [] if anchor.main_deck else anchor_materials(builder, extra_builder, anchor, req)
+    deck, d = builder.build_anchored(main_req, materials=mats)
+    extra_req = replace(req, extra_match_main_ratio=False)                          # (no theme / generic sliders in this mode)
+    extra = extra_builder.extra_for_main(extra_req, deck, rng_extra, labels)
+    debug = {"order": "main-first (single-card build)", "themes": labels}
+    debug.update(d)
+    if not anchor.main_deck:                                                        # the anchor itself goes in the Extra Deck
+        n = min(builder.anchor_copies(anchor), req.extra_deck_size)
+        keep = [e for e in extra if e.info.name != anchor.name][:max(0, req.extra_deck_size - n)]
+        extra = [Entry(anchor, "required", f"the card this deck is built around ({n} copies)") for _ in range(n)] + keep
+        debug["anchor_materials"] = len(mats)
+    return deck, extra, debug
+
+
 def generate_state(builder: Builder, extra_builder: ExtraBuilder, req: Request):
     """Returns (main State, extra_entries, debug)."""
+    if (req.anchor_card or "").strip():                                             # "base deck around a single card"
+        return generate_anchored(builder, extra_builder, req)
+    builder.anchor_names = set()                                                    # mode off: nothing is protected
     master = random.Random(req.seed)                                                # ONE generator drives every choice
     order = req.build_order if req.build_order in ("main-first", "extra-first") else master.choice(["main-first", "extra-first"])
     pool = builder.allowed(req)
