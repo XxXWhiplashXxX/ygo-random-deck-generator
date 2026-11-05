@@ -32,8 +32,9 @@ by_name = {r["name"].lower(): r for r in rows}                 # look a card up 
 links = read_table(SERIES_FILE, encoding="utf-8")[1]          # one row per (series page, card it links to, section)
 members = defaultdict(set)                                     # series -> its Members-section cards (for the related check)
 for link in links:
-    if link.get("section") == "member":
-        members[label_key(link["series"])].add(link["card"])
+    real = by_name.get(link["card"].lower())                  # the link as a real card in our file (None for 'hand', 'WIND' ...)
+    if link.get("section") == "member" and real is not None:
+        members[label_key(link["series"])].add(real["name"])  # stored under the card's exact name
 checker = RelatedChecker({r["name"]: r for r in rows}, members)
 
 # --- Add the series labels ---------------------------------------------------

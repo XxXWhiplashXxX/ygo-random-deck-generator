@@ -19,7 +19,7 @@ from collections import Counter                # counting how often each label w
 
 import ygo_paths as P                          # where the data and backup folders are
 from ygo_io import read_table, write_table     # reading and writing CSV files
-from ygo_related import LORE_SERIES, RelatedChecker, label_key, members_from_wiki   # the keep / drop rule + lore-only series
+from ygo_related import LORE_SERIES, RelatedChecker, kept_related, label_key, members_from_wiki   # the keep / drop rule + lore-only series
 
 CARDS = P.DATA / "cards.csv"                   # the card file the randomizer uses
 STATS = P.DATA / "Stats.csv"                   # the label list (archetypes, series, Types ...)
@@ -36,6 +36,7 @@ columns, rows = read_table(CARDS)                              # every card
 cards = {r["name"]: r for r in rows}                           # look a card up by its name
 wiki_rows = read_table(WIKI, encoding="utf-8")[1]              # the wiki notes, one row per card
 checker = RelatedChecker(cards, members_from_wiki(wiki_rows))  # knows each label's real members
+keep_links = kept_related(wiki_rows, checker)                  # every related link that passes the rule (two passes)
 
 # --- 3. Decide which related labels each card loses ------------------------------
 dropped = []                                                   # (card, label) pairs we removed, for the report
@@ -56,7 +57,7 @@ for w in wiki_rows:                                            # 3b. related lin
         continue
     member_keys = {label_key(v) for v in w["archseries"].split(" | ") if v.strip()}   # labels it REALLY belongs to
     related = [v.strip() for v in w["related_to_archseries"].split(" | ") if v.strip()]
-    kept_keys = {label_key(v) for v in related if checker.keep(w["name"], v)}          # related links that pass the rule
+    kept_keys = {label_key(v) for v in related if (w["name"], v) in keep_links}        # related links that pass the rule
     lose = {label_key(v) for v in related} - kept_keys - member_keys                   # lore-only and not a member
     if not lose:
         continue

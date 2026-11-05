@@ -15,7 +15,7 @@ import re    # regular expressions, for tidying wiki names
 from collections import Counter  # counts how many cards use each label
 
 from ygo_io import read_json, read_table, write_table   # shared file reading / writing
-from ygo_related import LORE_SERIES, RelatedChecker, label_key, members_from_wiki   # which related links to keep
+from ygo_related import LORE_SERIES, RelatedChecker, kept_related, label_key, members_from_wiki   # which related links to keep
 
 CARDS_FILE = "cards_new.csv"          # the big new cards file
 STATS_FILE = "Stats_new.csv"          # the big new Stats file
@@ -55,13 +55,14 @@ unknown = Counter()                                           # names in neither
 columns, rows = read_table(CARDS_FILE)                        # the cards (their text and materials decide which related links stay)
 wiki_rows = read_table(WIKI_FILE, encoding="utf-8")[1]        # what the wiki says, one row per card
 checker = RelatedChecker({r["name"]: r for r in rows}, members_from_wiki(wiki_rows))   # knows each label's real members
+keep_links = kept_related(wiki_rows, checker)                 # every related link that passes the rule (two passes)
 
 wiki = {}                                                     # card name -> (archetypes, series) or None
 for row in wiki_rows:
     if row["status"] != "ok":                                 # no wiki page for this card
         wiki[row["name"]] = None
         continue
-    related = [v for v in row["related_to_archseries"].split(" | ") if v.strip() and checker.keep(row["name"], v)]
+    related = [v for v in row["related_to_archseries"].split(" | ") if v.strip() and (row["name"], v.strip()) in keep_links]
     raw = row["archseries"].split(" | ") + related             # members + the related links that really interact
     archetypes, series = set(), set()
     for value in (v.strip() for v in raw):                    # each name the wiki gives
