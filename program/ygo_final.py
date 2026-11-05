@@ -49,6 +49,8 @@ STARTERS = 8                  # a deck wants at least this many Level 4-or-lower
 DROP_BELOW = 0.6              # Extra Deck cards the main deck can fill less than this share of materials for are dropped
 MENTION_POPULAR = 12          # a card named by more cards than this counts as a staple
 MENTION_CAP = 6               # soft limit on copies added only because cards name each other
+STAPLE_SEARCHER_CHANCE = 0.35  # chance a deck gets ONE card that names a staple it has (a Polymerization searcher: Vyon, King of the Swamp ...)
+SUBSTITUTE_EDGE = 5.0          # ...and a searcher that is also a Fusion substitute the deck can use (King of the Swamp) is 5x as likely
 REQUIRED_CAP = 8              # soft limit on main-deck copies added only because some card requires them
 ENABLE_BELOW = 5              # an Extra Deck smaller than this gets 'enabler' cards in the main deck (see add_enablers)
 ENABLE_BUDGET = 8             # most main-deck cards add_enablers may swap in, in total
@@ -509,6 +511,7 @@ def apply_mentions(builder: Builder, deck: State, pool: list[Info], rules: Rules
     theme_arche = {a for a, n in arche_count.items() if theme_cards and n >= 0.5 * len(theme_cards)}
     arche = set().union(*[c.facts["archetype"] for c in deck.unique.values()]) if deck.unique else set()
     score: dict = {}                                                       # name -> [links, Info, reasons]
+    staple_namers: dict = {}                                               # name -> (Info, staple it names): Polymerization searchers ...
 
     def consider(card: Info, why: str) -> None:
         if any(counts_as(c, card.name) for c in deck.unique.values()) or card.name not in allowed \
@@ -533,6 +536,7 @@ def apply_mentions(builder: Builder, deck: State, pool: list[Info], rules: Rules
             # (Dark Magician named by Dark Magician cards in a Dark Magician deck - not HEROes naming Polymerization)
             shared = (y.facts["archetype"] & c.facts["archetype"] & theme_arche) - {norm(c.name)}
             if len(namers) > MENTION_POPULAR and not shared:
+                staple_namers.setdefault(y.name, (y, c.name))                 # kept aside: at most ONE of these, sometimes (below)
                 continue
             consider(y, f"names {c.name}")                                 # (consider() now checks its needs, both ways)
     cands = list(score.values())
@@ -547,7 +551,63 @@ def apply_mentions(builder: Builder, deck: State, pool: list[Info], rules: Rules
         added.append(card.name)
         used += copies
         cands = [x for x in cands if x[1].name != named.name]
+    # A card that names a STAPLE the deck has (Vision HERO Vyon, Fluffal Cat, King of the Swamp -> Polymerization):
+    # fine now and then, so sometimes ONE of them goes in (1 copy). A Fusion substitute the deck's Fusions can use
+    # (King of the Swamp) is much likelier, because it does two jobs.
+    if staple_namers and rng.random() < STAPLE_SEARCHER_CHANCE:
+        ok = [(y, staple) for y, staple in staple_namers.values()
+              if y.name in allowed and y.main_deck and builder.normal_ok(y)
+              and deck.counts.get(y.name, 0) < builder.cap(y.name)
+              and not any(counts_as(c, y.name) for c in deck.unique.values())
+              and works_in(builder, rules, y, deck.entries, [])]             # it must still work here
+        if ok:
+            weights = [SUBSTITUTE_EDGE if substitute_limit(y) is not False else 1.0 for y, _ in ok]
+            y, staple = rng.choices(ok, weights=weights)[0]
+            deck.add(y, 1, "mention", f"mention: names {staple} (a staple - only now and then)")
+            added.append(y.name)
     debug["mention_cards_added"] = added
+
+
+def add_substitute(builder: Builder, extra_builder: ExtraBuilder, deck: State, extra: list[Entry],
+                   pool: list[Info], rng: random.Random, debug: dict) -> None:
+    """Fusion substitute rule. If a Fusion in the Extra Deck is SHORT of a material it names, or has no spare copy of it
+       (Thousand Dragon with only 1 Time Wizard: you must draw that exact card), add 1-2 copies of a Fusion substitute that may
+       stand in for it (King of the Swamp, Goddess with the Third Eye ...).
+         - only Fusions that are Fusion Summoned with a named material (extra_builder sets their sub_for)
+         - an archetype-limited substitute (HERO-only ...) only for that archetype's Fusions
+         - the Normal Monsters toggle and copy caps apply; nothing is added if the deck already has a substitute
+         - better-rated substitutes are likelier (King of the Swamp is the best one)"""
+    debug["substitute_added"] = []
+    monsters = [e.info for e in deck.entries if e.info.kind == "Monster"]
+    if any(substitute_limit(m) is not False for m in monsters):
+        return                                                             # the deck already has one
+    wanted = set()                                                         # archetypes of the Fusions that are short ('' = any)
+    for e in extra:
+        slots = extra_builder.slots.get(e.info.name)
+        allowed_for = getattr(slots, "sub_for", None) if slots is not None else None
+        if allowed_for is None:
+            continue                                                       # not a Fusion a substitute can help
+        short = any(named_slot(sl) and sum(1 for m in monsters if card_matches(sl.branches, m.facts)) < sl.need + 1
+                    for sl in slots)                                       # a named material it has no spare copy of (or too few)
+        if short:
+            wanted |= allowed_for | {""}                                   # '' = an unlimited substitute works too
+    if not wanted:
+        return                                                             # every Fusion has its named materials
+    cands = []
+    for c in pool:
+        lim = substitute_limit(c)
+        if lim is False or (lim != "" and lim not in wanted):
+            continue                                                       # not a substitute, or limited to another archetype
+        if deck.counts.get(c.name, 0) >= builder.cap(c.name) or not builder.normal_ok(c):
+            continue                                                       # banlist cap / Normal Monsters toggle
+        cands.append(c)
+    if not cands:
+        return
+    weights = [(c.rating or 0) ** 2 + 0.5 for c in cands]                   # rating 5 -> 25.5, rating 2 -> 4.5
+    pick = rng.choices(cands, weights=weights)[0]
+    n = min(rng.randint(1, 2), builder.cap(pick.name) - deck.counts.get(pick.name, 0))
+    deck.add(pick, n, "required", "rule: a Fusion substitute for a Fusion Monster missing a named material")
+    debug["substitute_added"].append(pick.name)
 
 
 def rule_violations(deck_main: list[Entry], builder: Optional[Builder] = None) -> list[str]:
@@ -824,6 +884,7 @@ def _add_needed_cards(builder: Builder, extra_builder: ExtraBuilder, deck: State
        for Ritual Monsters, Pendulum pairs, enough low-Level monsters), then cards that name each other. A card
        added by a rule or a mention may need cards of its own, so the required cards are checked once more."""
     deck, extra = add_required(builder, extra_builder, deck, extra, req, rules, rng, debug, pool)
+    add_substitute(builder, extra_builder, deck, extra, pool, rng, debug)  # a Fusion short of a named material: a substitute
     apply_rules(builder, deck, pool, rng, debug, generic, rules)
     if generic:
         debug["mention_cards_added"] = []                                   # a Generic deck has no archetype to pull named cards into

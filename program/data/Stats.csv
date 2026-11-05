@@ -221,6 +221,7 @@ Alternative Win Condition = Summer Schoolwork Successful!,FALSE,TRUE,FALSE,TRUE,
 Alternative Win Condition = F.A. Winners,TRUE,FALSE,TRUE,FALSE,Alt win cons are generally not generic
 ATK = 1850,TRUE,FALSE,TRUE,FALSE,Specific ATK/DEF Stats are not Generic
 ATK = 1350,TRUE,FALSE,TRUE,FALSE,Specific ATK/DEF Stats are not Generic
+Archetype = #NAME?,TRUE,FALSE,TRUE,FALSE,Archetypes are not generic by definition
 Archetype = /Assault Mode,TRUE,FALSE,TRUE,FALSE,Archetypes are not generic by definition
 Archetype = @Ignister,TRUE,FALSE,TRUE,FALSE,Archetypes are not generic by definition
 Archetype = A.I.,TRUE,FALSE,TRUE,FALSE,Archetypes are not generic by definition

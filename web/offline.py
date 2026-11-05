@@ -73,11 +73,14 @@ def run_check():
 
 
 def run_update(mode):
-    """Background job: rebuild the card database ('cards') or the forbidden lists ('banlists')."""
+    """Background job: rebuild the card database ('cards'), the forbidden lists ('banlists') or the staples ('staples')."""
     try:
         if mode == 'cards':
             log('Rebuilding the card database. Existing files are backed up by the updater.')
             ok = U.run_update(P.DATA / 'cards.csv', P.DATA / 'Stats.csv', log=log)
+        elif mode == 'staples':
+            log('Checking staples for every format (the first time this can take an hour or more)...')
+            ok = F.refresh_staples(log=log)
         else:
             log('Refreshing forbidden lists...')
             ok = F.refresh_banlists(P.DATA / 'cards.csv', log=log)
@@ -101,6 +104,7 @@ UPDATER_HTML = """<section class="offline-updater panel" id="localUpdater">
   <h3>Offline card database updater</h3>
   <p>Check for new cards or parser changes, and update the local database and forbidden lists.</p>
   <button type="button" id="updateCheck">Check for New Cards</button>
+  <button type="button" id="updateStaples">Check Staples</button>
   <div id="updateChoices" class="hidden">
     <button type="button" id="updateCards">Update Card Database</button>
     <button type="button" id="updateLists">Refresh Banlists</button>
@@ -167,9 +171,9 @@ def check(request: Request):
 
 @offline_app.post('/api/local-update/run/{mode}')
 def update(mode: str, request: Request):
-    """Start a background update: mode is 'cards' or 'banlists'."""
+    """Start a background update: mode is 'cards', 'banlists' or 'staples'."""
     require_local_request(request)
-    if mode not in ('cards', 'banlists'):
+    if mode not in ('cards', 'banlists', 'staples'):
         raise HTTPException(400, 'Unknown update mode')
     with state_lock:
         if state['busy']:

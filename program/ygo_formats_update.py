@@ -4,6 +4,7 @@ The "Check for New Cards" button runs refresh_banlists() every time (after a car
 the cards are already up to date).
 
   refresh_banlists(cards, log)       -> True if the list file was rebuilt         (the button, cards up to date)
+  refresh_staples(log)               -> True if format_staples.json was rebuilt  (the separate "Check Staples" button)
   update_banlists(work, cards, log)  -> the same, inside a card update's work folder
 
 What it downloads, and how often:
@@ -20,6 +21,7 @@ Nothing here can stop a card update: a download that fails is logged, and the ol
 """
 import json             # every site answers in JSON
 import shutil           # removes the work folder
+from typing import Optional  # 'a number or None' in function headers
 import time             # pauses between requests, and the staples time limit
 import urllib.parse     # puts 'Limited 1' safely into an address
 from pathlib import Path
@@ -89,7 +91,7 @@ def _download_banlists(sources: Path, log) -> None:
                 log(f"    couldn't download {banlist} ({cat}): {e}")
             time.sleep(POLITE_PAUSE)                                               # be polite: a short pause between requests
         log(f"    {len(formats)} formats; {len(new)} new ones, {len(wanted)} banlists to download")
-        _download_staples(sources, formats, log)
+        # (the staples are NOT downloaded here any more: the separate "Check Staples" button does that - refresh_staples())
     except Exception as e:
         log(f"    couldn't reach Format Library: {e}")
 
@@ -117,13 +119,14 @@ def _save(path: Path, data) -> None:
     part.replace(path)
 
 
-def _download_staples(sources: Path, formats: list, log) -> None:
+def _download_staples(sources: Path, formats: list, log, minutes: Optional[float] = STAPLES_MINUTES) -> None:
     """For every Format Library format we don't have staples for yet, in two parts:
          1. each format's list of popular deck types (quick, about 125 requests)
          2. each deck type's card list (how many copies of each card those decks ran) - the long part,
             WORKERS downloads at a time, with a real 'X of Y' count
        Every file is kept in program/data/staples_cache, so a run that stops partway (time limit, closed
-       window) carries on next time with only what is still missing. ygo_make_staples.py makes the scores."""
+       window) carries on next time with only what is still missing. ygo_make_staples.py makes the scores.
+       minutes = the most time it may take; None = no limit (the "Check Staples" button: every format, however long)."""
     from concurrent.futures import ThreadPoolExecutor, as_completed   # a few downloads at the same time
     folder = STAPLES_CACHE
     folder.mkdir(parents=True, exist_ok=True)
@@ -143,7 +146,7 @@ def _download_staples(sources: Path, formats: list, log) -> None:
     if not todo:
         log("--- Every format's staples are complete")
         return
-    stop_at = time.time() + STAPLES_MINUTES * 60                          # a slow site can't hold up the update forever
+    stop_at = time.time() + minutes * 60 if minutes else float("inf")     # a time limit, or none at all
 
     def fetch(job: tuple) -> str:
         """Download one address into one file (runs in a worker). Returns 'ok', 'failed' or 'out of time'.
@@ -194,7 +197,7 @@ def _download_staples(sources: Path, formats: list, log) -> None:
     log(f"--- Part 2 of 2: {len(jobs)} deck types to download ({reused} saved from earlier runs), {WORKERS} at a time ...")
     got = run(jobs, "deck type")
     if time.time() > stop_at:
-        log(f"    stopped after {STAPLES_MINUTES} minutes; the next update carries on from here")
+        log(f"    stopped after {minutes} minutes; the next run carries on from here")
     log(f"    {got} deck types downloaded, {reused} kept from earlier runs")
 
 
@@ -291,10 +294,7 @@ def update_banlists(work: Path, cards_path: Path, log) -> bool:
     try:
         IO.run_script(work, log, "Building the Forbidden Lists", "ygo_make_banlists.py",
               str(sources), str(P.FORBIDDEN / BANLIST_FILE), str(cards_path))
-        IO.run_script(work, log, "Working out each format's staples", "ygo_make_staples.py",
-              str(sources), str(STAPLES_FILE), str(STAPLES_CACHE), str(COMPLETE_FILE))
-        _current_staples(log)                                             # today's formats: refreshed every time
-        return True
+        return True                                                       # (staples: the separate refresh_staples() below)
     except Exception as e:
         log(f"    banlists not updated ({e}); the old ones are still there")
         return False
@@ -308,4 +308,34 @@ def refresh_banlists(cards_path: Path, log=print) -> bool:
     done = update_banlists(work, Path(cards_path).resolve(), log)
     shutil.rmtree(work, ignore_errors=True)
     log("=== Forbidden Lists updated." if done else "=== Forbidden Lists not updated.")
+    return done
+
+
+def refresh_staples(log=print) -> bool:
+    """The "Check Staples" button, separate from the card / Forbidden List update:
+         1. ask Format Library for its list of formats
+         2. download the deck data of EVERY format whose staples aren't finished - no time limit, so the
+            first run can take an hour or more (it pauses between requests to be polite to the site).
+            Progress is saved as it goes: closing the window partway is fine, the next run carries on.
+         3. work out each format's staples (ygo_make_staples.py -> format_staples.json)
+         4. refresh today's most popular cards (TCG, OCG, Master Duel)
+       Returns True if format_staples.json was rebuilt."""
+    work = P.PROGRAM / "staples_work"                                     # its own folder: can't clash with a card update
+    shutil.rmtree(work, ignore_errors=True)                               # start clean
+    sources = work / "banlist_sources"
+    sources.mkdir(parents=True)
+    done = False
+    try:
+        log("--- Downloading the formats from Format Library ...")
+        formats = json.loads(IO.download(f"{FL_API}/formats"))           # [{'name', 'date', 'banlist', 'category'}, ...]
+        (sources / "fl_formats.json").write_text(json.dumps(formats), encoding="utf-8")   # ygo_make_staples.py reads this
+        _download_staples(sources, formats, log, minutes=None)            # every format, however long it takes
+        IO.run_script(work, log, "Working out each format's staples", "ygo_make_staples.py",
+                      str(sources), str(STAPLES_FILE), str(STAPLES_CACHE), str(COMPLETE_FILE))
+        _current_staples(log)                                             # today's formats
+        done = True
+    except Exception as e:
+        log(f"    staples not updated ({e}); the old ones are still there")
+    shutil.rmtree(work, ignore_errors=True)
+    log("=== Staples updated." if done else "=== Staples not updated.")
     return done

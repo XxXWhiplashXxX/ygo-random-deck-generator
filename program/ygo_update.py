@@ -59,7 +59,8 @@ STAMP_SCRIPTS = ("ygo_add_new_cards.py", "ygo_add_new_archetypes.py", "ygo_merge
                  "ygo_fix_stats.py", "ygo_wiki_series.py", "ygo_wiki_gaps.py", "ygo_wiki_passcode.py",
                  "ygo_add_passcode_matches.py", "ygo_wiki_labels.py", "ygo_series_pages.py", "ygo_set_eras.py",
                  "ygo_rate_by_views.py", "ygo_add_dates.py", "ygo_fill_supports.py", "ygo_fusion_substitutes.py",
-                 "ygo_wiki_supports.py", "ygo_clean_labels.py", "ygo_io.py")                                             # (all in program/)
+                 "ygo_wiki_supports.py", "ygo_clean_labels.py", "ygo_io.py",
+                 "ygo_related.py")                                         # (all in program/; ygo_related.py = which related cards are kept)
 STAMP_DATA = ("Mechanics.csv",)                                           # (in program/data/)
 
 

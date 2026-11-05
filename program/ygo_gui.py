@@ -435,6 +435,8 @@ class RandomizerWindow:
         ttk.Button(bf, text="Copy Decklist", command=self.copy).grid(row=0, column=1, padx=(0, 8))
         self.update_btn = ttk.Button(bf, text="Check for New Cards", command=self.check_new_cards)
         self.update_btn.grid(row=0, column=2)
+        self.staples_btn = ttk.Button(bf, text="Check Staples", command=self.check_staples)   # its own button: can take an hour
+        self.staples_btn.grid(row=0, column=3)
 
     def _start_up(self) -> None:
         """Load the last used preset, draw the labels, size the window to fit (never bigger than the screen), run."""
@@ -595,6 +597,27 @@ class RandomizerWindow:
                                             self.update_btn.state(["!disabled"])))
                 return
             self.root.after(0, lambda: self.offer(latest, have, changed))
+        threading.Thread(target=work, daemon=True).start()
+
+    def check_staples(self) -> None:
+        """Download every format's deck data and rebuild the staples (in the background). Can take an hour or
+           more the first time; progress is saved, so closing the program partway is fine."""
+        ok = messagebox.askyesno("Check Staples",
+                                 "Download the deck data for every format whose staples aren't finished yet?\n\n"
+                                 "The first time this can take an hour or more. Progress is saved as it goes, "
+                                 "so you can close the program and carry on later.")
+        if not ok:
+            return
+        self.staples_btn.state(["disabled"])                    # one staples check at a time
+        self.preview.delete("1.0", tk.END)
+
+        def work():
+            F.refresh_staples(log=self.log)
+
+            def finish():
+                self.engine["path"] = None                      # the next Generate re-reads the staples
+                self.staples_btn.state(["!disabled"])
+            self.root.after(0, finish)
         threading.Thread(target=work, daemon=True).start()
 
     def offer(self, latest: str, have, changed: bool = False) -> None:

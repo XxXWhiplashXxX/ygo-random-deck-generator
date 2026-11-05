@@ -21,7 +21,7 @@
 
     $('updateStatus').textContent = s.error || PHASE_TEXT[s.phase];
     $('updateLog').textContent = s.logs.join('\n');
-    for (const id of ['updateCheck', 'updateCards', 'updateLists']) $(id).disabled = s.busy;   // no clicks mid-job
+    for (const id of ['updateCheck', 'updateCards', 'updateLists', 'updateStaples']) $(id).disabled = s.busy;   // no clicks mid-job
 
     if (s.check) {                                         // a check has finished at least once
       $('updateChoices').classList.remove('hidden');
@@ -44,7 +44,7 @@
     $('updateStatus').textContent = e.message;
   }
 
-  // Start a job on the server ('check', 'run/cards' or 'run/banlists').
+  // Start a job on the server ('check', 'run/cards', 'run/banlists' or 'run/staples').
   async function start(path) {
     try {
       const res = await fetch('/api/local-update/' + path, { method: 'POST' });
@@ -65,6 +65,11 @@
     }
   };
   $('updateLists').onclick = () => start('run/banlists');
+  $('updateStaples').onclick = () => {                     // its own job: every format's deck data, however long it takes
+    if (confirm('Download the deck data for every format whose staples are not finished? The first time this can take an hour or more. Progress is saved, so you can stop and carry on later.')) {
+      start('run/staples');
+    }
+  };
 
   refreshStatus().catch(showError);                       // show the current state when the page opens
 })();
