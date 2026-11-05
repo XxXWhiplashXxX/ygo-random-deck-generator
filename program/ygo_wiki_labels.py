@@ -2,8 +2,9 @@
 # Rebuilds the archetype labels and adds series labels, using what Yugipedia says each card belongs to
 # (card_archseries.csv, made by ygo_wiki_series.py). Whether a name is a series or an archetype comes from
 # Yugipedia's two lists (series_list.json, archetype_list.json).
-#   - archetype column: the wiki's archetypes for the card, members AND related cards
-#   - series column (new, right after archetype): the wiki's series for the card, members AND related
+#   - archetype column: the wiki's archetypes for the card, members AND related cards that really interact
+#   - series column (new, right after archetype): the wiki's series for the card, members AND related (same rule)
+#   - related links that are only lore, and lore-only series, are left out (see ygo_related.py)
 #   - cards with no wiki page keep their old archetypes
 #   - Stats: archetype rows are rebuilt to match the cards, and a 'Series = X' row is added per series
 # Rewrites cards_new.csv and Stats_new.csv in place.
@@ -14,6 +15,7 @@ import re    # regular expressions, for tidying wiki names
 from collections import Counter  # counts how many cards use each label
 
 from ygo_io import read_json, read_table, write_table   # shared file reading / writing
+from ygo_related import LORE_SERIES, RelatedChecker, label_key, members_from_wiki   # which related links to keep
 
 CARDS_FILE = "cards_new.csv"          # the big new cards file
 STATS_FILE = "Stats_new.csv"          # the big new Stats file
@@ -50,15 +52,20 @@ SERIES_TITLES = {t.lower() for t in series_titles}            # exact series tit
 unknown = Counter()                                           # names in neither list (they still count as archetypes; reported at the end)
 
 # --- What the wiki says about each card -------------------------------------
+columns, rows = read_table(CARDS_FILE)                        # the cards (their text and materials decide which related links stay)
+wiki_rows = read_table(WIKI_FILE, encoding="utf-8")[1]        # what the wiki says, one row per card
+checker = RelatedChecker({r["name"]: r for r in rows}, members_from_wiki(wiki_rows))   # knows each label's real members
+
 wiki = {}                                                     # card name -> (archetypes, series) or None
-for row in read_table(WIKI_FILE, encoding="utf-8")[1]:
+for row in wiki_rows:
     if row["status"] != "ok":                                 # no wiki page for this card
         wiki[row["name"]] = None
         continue
-    raw = row["archseries"].split(" | ") + row["related_to_archseries"].split(" | ")   # members + related
+    related = [v for v in row["related_to_archseries"].split(" | ") if v.strip() and checker.keep(row["name"], v)]
+    raw = row["archseries"].split(" | ") + related             # members + the related links that really interact
     archetypes, series = set(), set()
     for value in (v.strip() for v in raw):                    # each name the wiki gives
-        if not value:
+        if not value or label_key(value) in LORE_SERIES:     # nothing, or a lore-only series (Recolored counterpart ...)
             continue
         exact_archetype = value.lower() in ARCHETYPE_TITLES and value.lower() not in SERIES_TITLES   # the name IS an archetype title ('Chaos' -
         if exact_archetype or (value.lower() in ARCHETYPES and value.lower() not in SERIES):          #  while the series is 'Chaos (series)'): an archetype
@@ -78,7 +85,6 @@ for row in read_table(WIKI_FILE, encoding="utf-8")[1]:
     wiki[row["name"]] = (archetypes, series)
 
 # --- Rewrite the cards -------------------------------------------------------
-columns, rows = read_table(CARDS_FILE)
 if "series" not in columns:                                   # add the new column right after 'archetype'
     columns.insert(columns.index("archetype") + 1, "series")
 

@@ -315,7 +315,7 @@ class RandomizerWindow:
             widgets += self.levels.row(lf, i + 1, i, text)
         rand_cb = ttk.Checkbutton(lf, text="Random", variable=V["rand_levels"])
         rand_cb.grid(row=1, column=5, rowspan=3, padx=(8, 0))
-        ttk.Checkbutton(lf, text="Normal Monsters  (unticked = none, except ones that ARE the theme)",
+        ttk.Checkbutton(lf, text="Normal Monsters  (unticked = only the theme's own, and ones a deck card asks for)",
                         variable=V["allow_normals"]).grid(row=4, column=0, columnspan=6, sticky="w", pady=(6, 0))
 
         def levels_toggled(*_):

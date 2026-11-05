@@ -72,6 +72,9 @@ SAMPLE_SIZE = 150             # how many random candidates we weigh per pick (sp
 MAX_COPIES = 3                # Yu-Gi-Oh copy limit
 MIN_ON_THEME = 8              # if at least this many on-theme/archetype-less candidates exist, ignore the rest
 PREFER_THEME = 6.0            # partners that belong to the theme bucket are 6x as likely
+AUTO_THEME_SHARE = 2 / 3      # automatic support: share of its slots that go to cards supporting the theme (the rest: other support)
+AUTO_MECHANIC_EDGE = 2.0      # automatic support, 'the rest' bucket: mechanic support is 2x as likely as Type / Attribute / archetype support
+THEME_SUPPORT_BOOST = 3.0     # a THEME pick that also supports the theme (Pyramid Turtle / Goblin Zombie in a Zombie deck) is 3x as likely
 MIN_SYNERGY = 8               # support picks must link to the deck if at least this many linked candidates exist
 SYNERGY_SAMPLE = 600          # how many candidates we test for a link (bigger = better matches, slower)
 OFF_ARCHETYPE = 0.2           # weight multiplier for a card from an archetype the deck's theme does not use
@@ -186,7 +189,7 @@ class Request:
     level_low_pct: int = 60                              # share of Main Deck monsters that are Level 1-4 ...
     level_mid_pct: int = 30                              # ... Level 5-6 ...
     level_high_pct: int = 10                             # ... Level 7 or higher (soft targets; they add up to 100)
-    allow_normals: bool = True                           # False = no Normal Monsters, except the theme's own
+    allow_normals: bool = True                           # False = no Normal Monsters, except the theme's own and ones a deck card asks for
     # "Base deck around a single card" (Advanced). Card 1 replaces Theme 1 and Card 2 replaces Theme 2: that theme's
     # slots are filled from the card's needs, supporters, archetype, Type / Attribute and the cards it supports
     # (Builder._fill_card). Support, Generic, sliders, deck sizes, banlist and Highlander all still apply.
@@ -410,6 +413,15 @@ class State:
     prefer: set = field(default_factory=set)             # names of every card in the theme bucket (partners favour these)
     theme_arche: set = field(default_factory=set)        # archetypes the THEME LABELS name (unlike `arche`, never grows from the cards picked)
     generic_deck: bool = False                           # True when the theme is Generic (no archetype / type / attribute)
+    theme_atoms: set = field(default_factory=set)        # (field, value) of each non-mechanic theme label, e.g. ('type', 'zombie')
+    theme_cards: dict = field(default_factory=dict)      # name -> Info for every card in the theme buckets (the theme's future targets)
+    theme_support: dict = field(default_factory=dict)    # name -> True/False: does this card support the theme? (worked out once per deck)
+
+    latest = None                                        # (class-wide, not a field) the deck being built right now, so the
+                                                         # Normal Monsters toggle can ask "does this deck call for Normals?"
+
+    def __post_init__(self):
+        State.latest = self                              # every new or rebuilt deck becomes 'the deck being built'
 
     def add(self, info: Info, copies: int, origin: str, reason: str) -> None:
         """Put `copies` copies of a card in the deck and update every running total."""
@@ -609,6 +621,39 @@ class Builder:
                 best_score, best_partner = score, partner
         return NEED_BONUS * best_score, best_partner
 
+    def supports_theme(self, info: Info, deck: State) -> bool:
+        """True if this card supports one of the deck's THEME labels: a branch of its Supports names the theme
+           (Pyramid Turtle: 'Type = Zombie && DEF <= 2000' in a 'Type = Zombie' deck) AND enough of the theme's
+           own cards fit the whole branch, stat limits included (MIN_TARGETS of them). Worked out once per card per deck."""
+        if info.name in deck.theme_support:                                           # already worked out for this deck
+            return deck.theme_support[info.name]
+        result = False
+        for branch in info.helps:
+            atoms = [a for a in branch if not is_mechanic(a)]                         # the trait part only
+            if not any((a.field, norm_trait(a.value)) in deck.theme_atoms for a in atoms):
+                continue                                                              # this branch doesn't name the theme
+            targets = sum(1 for o in deck.theme_cards.values()                        # theme cards it could search / summon
+                          if o.name != info.name and card_matches([tuple(atoms)], o.facts))
+            if targets >= MIN_TARGETS:
+                result = True
+                break
+        deck.theme_support[info.name] = result
+        return result
+
+    @staticmethod
+    def wants_normals(deck: State) -> bool:
+        """True if a card already in the deck calls for Normal Monsters (its Supports columns mention them:
+           Rescue Rabbit, Unexpected Dai, Heavy Polymerization ...)."""
+        cols = ("strictSupports", "generalSupports", "strictSupportedBy", "generalSupportedBy")
+        return any("trait = normal monster" in (c.row.get(k) or "").lower()
+                   for c in deck.unique.values() for k in cols)
+
+    def named_in_deck(self, info: Info, deck: State) -> bool:
+        """True if a card in the deck names this card in "quotes" in its text (King of the Skull Servants -> "Skull Servant")."""
+        quoted = f'"{info.name}"'.lower()                                             # how a card text names another card
+        return any(quoted in (c.row.get("card text") or "").lower()
+                   for c in deck.unique.values() if c.name != info.name)
+
     def help_factor(self, info: Info, deck: State) -> float:
         """Bigger when the cards this card supports are already in the deck."""
         branches = [tuple(a for a in branch if not is_mechanic(a)) for branch in info.helps]
@@ -801,32 +846,20 @@ class Builder:
             w *= 2.0 if have < share * self.level_target else 0.1                   # still short -> likelier; full -> rarer
         return w
 
-    @staticmethod
-    def strong_normal(info: Info) -> bool:
-        """Independent high-stat Normal Monsters remain eligible even with outside-theme Normals disabled.
-
-        Levels 1-4: 1900+ ATK or 2100+ DEF. Levels 5-6: 2500+ ATK or 3000+ DEF.
-        Levels 7+ do not get an exemption, and Normal Pendulum monsters keep their original handling.
-        """
-        if info.kind != "Monster" or "normal" not in info.facts["trait"]:
+    def normal_ok(self, info: Info, deck: Optional[State] = None) -> bool:
+        """The Normal Monsters toggle.
+             On  : every Normal Monster is allowed (unchanged).
+             Off : a Normal Monster is only allowed if it is one of the theme's own cards (Blue-Eyes White Dragon in Blue-Eyes),
+                   or the deck asks for it: a deck card supports Normal Monsters (Rescue Rabbit, Transcendosaurus Meteorus)
+                   or names it (King of the Skull Servants -> "Skull Servant").
+           `deck` = the deck to ask; when it is left out, the deck being built right now (State.latest) is used.
+           Other format, rating and deck-building checks are still applied separately."""
+        if self.allow_normals or "normal" not in info.facts["trait"] or info.name in self.theme_names:
+            return True                                                               # toggle on / not a Normal / the theme's own
+        deck = deck or State.latest
+        if deck is None:                                                              # no deck yet: nothing can ask for it
             return False
-        if "pendulum" in info.facts["trait"]:
-            return False
-        level = info.level
-        atk = info.facts.get("atk")
-        defense = info.facts.get("def")
-        if 1 <= level <= 4:
-            return (atk is not None and atk >= 1900) or (defense is not None and defense >= 2100)
-        if 5 <= level <= 6:
-            return (atk is not None and atk >= 2500) or (defense is not None and defense >= 3000)
-        return False
-
-    def normal_ok(self, info: Info) -> bool:
-        """Off excludes outside-theme Normals, except independently useful high-stat Normals.
-        Other format, rating and deck-building checks are still applied separately.
-        """
-        return (self.allow_normals or "normal" not in info.facts["trait"]
-                or info.name in self.theme_names or self.strong_normal(info))
+        return self.wants_normals(deck) or self.named_in_deck(info, deck)
 
     def starters_needed(self, monsters: int) -> int:
         """How many Level 4-or-lower monsters the 'starter' rule asks for in a deck with this many monsters:
@@ -838,9 +871,10 @@ class Builder:
 
     # ---- picking ---------------------------------------------------------
     def pick(self, bucket: list[Info], deck: State, pool: list[Info], rng: random.Random, use_fit: bool = True, need_synergy: bool = False,
-             boost: Optional[dict] = None, staples: bool = False):
+             boost: Optional[dict] = None, staples: bool = False, skip_normals: bool = False):
         """Choose one card from `bucket` by weight. Returns (info, partner_traits) or (None, None).
-           staples=True (filler only): cards the format's decks really played are likelier (format_staples.json)."""
+           staples=True (filler only): cards the format's decks really played are likelier (format_staples.json).
+           skip_normals=True (Type / Attribute / mechanic themes): no Normal Monsters unless the deck has a card that calls for them."""
         legal = [c for c in bucket if deck.counts.get(c.name, 0) < self.cap(c.name)     # not already at its copy limit
                  and self.normal_ok(c)]                                               # Normal Monsters toggle (theme cards always ok)
         if self.point_cap is not None:                                                # Genesys: only cards that still fit
@@ -849,6 +883,10 @@ class Builder:
         if deck.quota is not None:                                                      # respect type targets if possible
             q = [c for c in legal if c.kind not in deck.quota or deck.quota[c.kind] > 0]
             legal = q or legal
+        if skip_normals and not self.wants_normals(deck):                              # a Type / Attribute theme: no vanilla Normals...
+            no_vanilla = [c for c in legal if not (c.kind == "Monster" and "normal" in c.facts["trait"])
+                          or self.named_in_deck(c, deck)]                              # (one a deck card names is still fine)
+            legal = no_vanilla or legal                                               # ...unless they are all that is left
         if not legal:
             return None, None
         if deck.generic_deck:                                                           # Generic deck: limit specific + vanilla cards
@@ -883,7 +921,10 @@ class Builder:
             lb = self.level_bias(c, deck)                                               # Level weight (sliders or 4 / 2 / 1)
             if not use_fit and self.level_shares is not None:
                 lb = lb ** 0.5                                                        # THEME picks follow the sliders softly
-            w = lb * f * self.help_factor(c, deck) * fit
+            hf = self.help_factor(c, deck)                                              # how much it supports what is ALREADY in the deck
+            if not use_fit and self.supports_theme(c, deck):                            # THEME pick that supports the theme itself:
+                hf = max(hf, 1.0) * THEME_SUPPORT_BOOST                               #  its targets are coming, so boost it (not 'nothing to search yet')
+            w = lb * f * hf * fit
             if use_fit and self.junk(c, deck):
                 w *= JUNK_FACTOR                                                      # support / filler picks must work in THIS deck
             elif not use_fit and not deck.generic_deck and self.theme_junk(c, deck):
@@ -907,16 +948,17 @@ class Builder:
 
     def fill(self, deck: State, bucket: list[Info], pool: list[Info], desired: int,
              origin: str, label: str, rng: random.Random, need_synergy: bool = False, boost: Optional[dict] = None,
-             fit: Optional[bool] = None) -> None:
+             fit: Optional[bool] = None, skip_normals: bool = False) -> None:
         """Add cards from `bucket` until `desired` slots are used (partners use slots too).
            boost = {card name: multiplier} passed on to pick() (used by the single-card build to favour close supporters).
-           fit = use the archetype-fit / junk checks; None = decided by origin (support picks yes, theme picks no)."""
+           fit = use the archetype-fit / junk checks; None = decided by origin (support picks yes, theme picks no).
+           skip_normals = no Normal Monsters unless the deck calls for them (passed on to pick())."""
         use_fit = (not origin.startswith("theme")) if fit is None else fit
         attempts = 0
         while desired > 0 and attempts < desired * 40:
             attempts += 1
             card, partner = self.pick(bucket, deck, pool, rng, use_fit=use_fit, need_synergy=need_synergy,
-                                      boost=boost)
+                                      boost=boost, skip_normals=skip_normals)
             if card is None:
                 break
             copies = rng.randint(1, min(self.cap(card.name) - deck.counts.get(card.name, 0), desired))
@@ -1544,20 +1586,31 @@ class Builder:
         debug[origin] = f"{label or 'generic'} ({len(bucket)} cards)"
         if not is_support and bucket is not pool:                                     # remember what "on theme" means
             deck.prefer |= {c.name for c in bucket}
+            deck.theme_cards.update({c.name: c for c in bucket})                      # the theme's cards: targets for its own searchers
+        skip_normals = False                                                          # Normal Monsters allowed? (decided below)
+        if not is_support and label and real(label):
+            at = parse_atom(label)
+            if not is_mechanic(at):
+                deck.theme_atoms.add((at.field, norm_trait(at.value)))                # e.g. ('type', 'zombie')
+            # A Type / Attribute / mechanic theme gets no vanilla Normals (Zombino in a Zombie deck) unless a card calls for them.
+            # An archetype or series keeps its own Normals (Blue-Eyes White Dragon), and a 'Normal Monster' theme is all Normals.
+            normal_theme = at.field == "trait" and "normal" in norm_trait(at.value)
+            skip_normals = at.field not in ("archetype", "series") and not normal_theme
         wants_generic = norm(label or "") in ("generic", "")                          # a Generic label stays unlinked on purpose
         before = len(deck.entries)
         self.fill(deck, bucket, pool, slots, origin, label or "generic", rng,
-                  need_synergy=(is_support and not wants_generic))
+                  need_synergy=(is_support and not wants_generic), skip_normals=skip_normals)
         short = slots - (len(deck.entries) - before)                                  # theme slots the archetype could not fill
         if not is_support and short > 0 and label and real(label):
             at2 = parse_atom(label)
             if at2.field in ("archetype", "series") and not is_mechanic(at2):         # a small archetype / series ran out: use related cards
                 got = 0
-                for tier in self.related_tiers(norm(at2.value), pool, at2.field):
+                for i, tier in enumerate(self.related_tiers(norm(at2.value), pool, at2.field)):
                     if short <= 0:
                         break
                     b2 = len(deck.entries)
-                    self.fill(deck, tier, pool, short, origin, f"related to {label}", rng)
+                    self.fill(deck, tier, pool, short, origin, f"related to {label}", rng,
+                              skip_normals=(i == 1))                                  # tier 2 = outside monsters of its Type / Attribute: no vanilla Normals
                     short -= len(deck.entries) - b2
                     got += len(deck.entries) - b2
                 if got:
@@ -1613,27 +1666,59 @@ class Builder:
 
     def _fill_auto_support(self, deck: State, pool: list[Info], slots: int,
                            rng: random.Random, origin: str, debug: dict) -> None:
-        """Automatic support: Mechanic > Type > Attribute > Archetype > generic.
-        Only select cards whose strictSupports really cover a third of the current deck.
+        """Automatic support, drawn from two buckets:
+             Theme    : cards that support the deck's own theme, members included (Goblin Zombie, Pyramid Turtle,
+                        Book of Life in a Zombie deck; see supports_theme). Gets about two-thirds of the slots.
+             The rest : every other card whose strictSupports cover a third of the deck (mechanic, Type, Attribute and
+                        archetype support all mixed together, no order between them). Gets the other third.
+                        Cards that cover more of the deck are likelier, and mechanic support gets a mild edge
+                        (AUTO_MECHANIC_EDGE) because it plays off what the deck already does.
+           If one bucket runs out, its slots go to the other.
         """
         before = len(deck.entries)
-        for _ in range(slots * 5):
-            if len(deck.entries) - before >= slots: break
-            ranked = [(c, self._support_matches(c, deck)) for c in pool if c.main_deck and c.helps]
-            ranked = [(c, rank) for c, rank in ranked if rank[0] and not self.junk(c, deck)]
-            card = None
-            for priority in (5, 4, 3, 2):
-                bucket = [c for c, r in ranked if r[0] == priority]
+        theme_target = round(slots * AUTO_THEME_SHARE)                                # e.g. 9 slots -> 6 Theme, 3 the rest
+        theme_done = 0                                                                # copies added from the Theme bucket so far
+        for _ in range(slots * 5):                                                    # (a safety limit on tries)
+            added = len(deck.entries) - before
+            if added >= slots:
+                break
+            # --- the two buckets, rebuilt each time because the deck (and so what is useful) keeps changing ---
+            theme_sup = [c for c in pool if c.main_deck and c.helps                    # Theme: supports the theme itself
+                         and self.supports_theme(c, deck) and not self.junk(c, deck)]
+            theme_names = {c.name for c in theme_sup}
+            ranked = [(c, self._support_matches(c, deck)) for c in pool
+                      if c.main_deck and c.helps and c.name not in theme_names]       # the rest: everything else...
+            ranked = [(c, rank) for c, rank in ranked if rank[0] and not self.junk(c, deck)]   # ...that covers a third of the deck
+            rest = [c for c, _ in ranked]
+            rest_boost = {c.name: (1 + rank[1] * 3)                                   # more of the deck covered -> likelier,
+                                  * (AUTO_MECHANIC_EDGE if rank[0] == 5 else 1.0)     # and mechanic support (priority 5) gets an edge
+                          for c, rank in ranked}
+            # --- which bucket this slot comes from: Theme until it has its share, then the rest ---
+            order = [("theme", theme_sup), ("rest", rest)]
+            if theme_done >= theme_target:                                            # Theme has its two-thirds: the rest goes first
+                order.reverse()
+            card, bucket_used = None, None
+            for name, bucket in order:                                                # the first bucket that gives a card wins
                 if bucket:
                     card, _ = self.pick(bucket, deck, pool, rng, need_synergy=False,
-                                        boost={c.name: 1 + r[1] * 3 for c, r in ranked if r[0] == priority})
-                    if card: break
-            if card is None: break
-            room = min(slots - (len(deck.entries) - before), self.cap(card.name) - deck.counts.get(card.name, 0))
-            if room <= 0: break
-            _, coverage, selected_label = self._support_detail(card, deck)
-            deck.add(card, rng.randint(1, room), origin,
-                     f"automatic support: {selected_label} ({coverage:.0%} of deck)")
+                                        boost=rest_boost if name == "rest" else None)
+                    if card:
+                        bucket_used = name
+                        break
+            if card is None:                                                          # both buckets empty: filler takes over
+                break
+            room = min(slots - added, self.cap(card.name) - deck.counts.get(card.name, 0))
+            if bucket_used == "theme":
+                room = min(room, max(1, theme_target - theme_done))                   # don't overshoot the Theme share
+            if room <= 0:
+                break
+            copies = rng.randint(1, room)
+            if bucket_used == "theme":
+                theme_done += copies
+                deck.add(card, copies, origin, "automatic support: supports the theme")
+            else:
+                _, coverage, selected_label = self._support_detail(card, deck)
+                deck.add(card, copies, origin, f"automatic support: {selected_label} ({coverage:.0%} of deck)")
         left = slots - (len(deck.entries) - before)
         debug[origin] = f"automatic support ({slots-left}/{slots} matched; remaining slots use normal filler)"
 

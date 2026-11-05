@@ -30,7 +30,7 @@ def defaults() -> dict:
         "monster_target": "20", "spell_target": "10", "trap_target": "10", "rand_comp": False,
         # Main Deck monster Levels: off = the old fixed weights (old presets load like this); on = the three sliders
         "level_sliders": False, "level_low_pct": 60, "level_mid_pct": 30, "level_high_pct": 10, "rand_levels": False,
-        "allow_normals": True,                                              # Normal Monsters toggle (off = theme ones only)
+        "allow_normals": True,                                              # Normal Monsters toggle (off = theme ones + ones a deck card asks for)
         "max_era": "GO RUSH!!", "rand_era": False,
         "min_rating": "2", "max_rating": "5", "rand_rating": False,
         "allow_fusion": True, "allow_synchro": True, "allow_xyz": True, "allow_link": True, "rand_extra_types": False,
@@ -174,7 +174,7 @@ def breakdown_text(req: Request) -> str:
                f"  Support total: {support}  (Auto: staples + cards that help 1/3 of the deck)\n") +
             (f"Monster Levels: 1-4 {req.level_low_pct}% / 5-6 {req.level_mid_pct}% / 7+ {req.level_high_pct}%\n"
                if req.level_sliders else "") +
-            ("Normal Monsters: off (only the theme's own)\n" if not req.allow_normals else "") +
+            ("Normal Monsters: off (only the theme's own and ones a deck card asks for)\n" if not req.allow_normals else "") +
             f"Format: {fmt}\n"
             f"Seed: {req.seed}   Build order: {req.build_order}\n")
 
