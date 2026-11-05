@@ -35,6 +35,7 @@ from __future__ import annotations
 import csv
 import random
 import re
+from collections import Counter            # counting Types and archetypes
 from pathlib import Path
 from typing import Optional
 
@@ -467,18 +468,28 @@ def apply_rules(builder: Builder, deck: State, pool: list[Info], rng: random.Ran
         low = [c for c in pool if c.kind == "Monster" and (c.facts.get("level") or 99) <= 4 and "link" not in c.facts["trait"]
                and c.main_deck and deck.counts.get(c.name, 0) < builder.cap(c.name) and (c.clean or not generic)   # Generic deck: clean only
                and builder.normal_ok(c)]                                       # Normal Monsters toggle
-        low = rng.sample(low, min(150, len(low)))                              # sample first: checking needs for every card is slow
-        low = [c for c in low if works_in(builder, rules, c, deck.entries, [])] or low   # Step 2: monsters that work here
+        # Where to look, in order - a later pile is only used once the one before it has nothing left:
+        #   1. the theme's own low-Level monsters (Little D, Beatraptor ... for Transcendosaurus)
+        #   2. low-Level monsters of the deck's main Type(s): a Type at least 40% of the deck's monsters share (Dinosaur)
+        #   3. anything else (only if the deck has nothing of its own to offer)
+        type_count = Counter(t for e in mons for t in e.info.facts["type"])
+        main_types = {t for t, n in type_count.items() if n >= 0.4 * len(mons)}
+        piles = [[c for c in low if c.name in builder.theme_names],
+                 [c for c in low if c.name not in builder.theme_names and c.facts["type"] & main_types],
+                 [c for c in low if c.name not in builder.theme_names and not (c.facts["type"] & main_types)]]
         wanted = deck_arche
         got = 0
-        while easy + got < builder.starters_needed(len(mons) + got) and low:         # target grows as monsters are added
-            w = [_fit_weight(c, wanted) * (2.0 if needs_covered(builder, c, deck) else 0.2) for c in low]
-            pick = rng.choices(low, weights=w)[0]
-            n = min(2, builder.cap(pick.name) - deck.counts.get(pick.name, 0))
-            deck.add(pick, n, "required", "rule: the deck needs monsters it can Normal Summon (Level 4 or lower)")
-            added.append(pick.name)
-            got += n
-            low = [c for c in low if c.name != pick.name]
+        for pile in piles:
+            pile = rng.sample(pile, min(150, len(pile)))                      # sample first: checking needs for every card is slow
+            pile = [c for c in pile if works_in(builder, rules, c, deck.entries, [])] or pile   # Step 2: monsters that work here
+            while easy + got < builder.starters_needed(len(mons) + got) and pile:   # target grows as monsters are added
+                w = [_fit_weight(c, wanted) * (2.0 if needs_covered(builder, c, deck) else 0.2) for c in pile]
+                pick = rng.choices(pile, weights=w)[0]
+                n = min(2, builder.cap(pick.name) - deck.counts.get(pick.name, 0))
+                deck.add(pick, n, "required", "rule: the deck needs monsters it can Normal Summon (Level 4 or lower)")
+                added.append(pick.name)
+                got += n
+                pile = [c for c in pile if c.name != pick.name]
     debug.setdefault("rule_cards_added", []).extend(added)
 
 
@@ -491,6 +502,11 @@ def apply_mentions(builder: Builder, deck: State, pool: list[Info], rules: Rules
        by weight: the more deck cards a candidate is linked to, the likelier it is."""
     mentions, mentioned_by = rules.graph()
     allowed = {c.name for c in pool}
+    # The theme's own archetypes: ones at least half of the theme's cards belong to ('transcendosaurus').
+    # (Not every archetype some deck card has: Polymerization alone carries 18, from Yugipedia's related lists.)
+    theme_cards = [rules.by_name[norm(n)] for n in builder.theme_names if norm(n) in rules.by_name]
+    arche_count = Counter(a for c in theme_cards for a in c.facts["archetype"])
+    theme_arche = {a for a, n in arche_count.items() if theme_cards and n >= 0.5 * len(theme_cards)}
     arche = set().union(*[c.facts["archetype"] for c in deck.unique.values()]) if deck.unique else set()
     score: dict = {}                                                       # name -> [links, Info, reasons]
 
@@ -513,8 +529,10 @@ def apply_mentions(builder: Builder, deck: State, pool: list[Info], rules: Rules
         namers = mentioned_by.get(c.name, [])
         for y in namers:                                                   # reverse: cards that name this card
             # a staple named by dozens of cards (Polymerization...) would drag in random cards, so only
-            # follow it when few cards name it, or when the namer shares an archetype with it
-            if len(namers) > MENTION_POPULAR and not ((y.facts["archetype"] & c.facts["archetype"]) - {norm(c.name)}):
+            # follow it when few cards name it, or when the namer shares one of the THEME's archetypes with it
+            # (Dark Magician named by Dark Magician cards in a Dark Magician deck - not HEROes naming Polymerization)
+            shared = (y.facts["archetype"] & c.facts["archetype"] & theme_arche) - {norm(c.name)}
+            if len(namers) > MENTION_POPULAR and not shared:
                 continue
             consider(y, f"names {c.name}")                                 # (consider() now checks its needs, both ways)
     cands = list(score.values())

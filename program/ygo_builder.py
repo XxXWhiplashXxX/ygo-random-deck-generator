@@ -982,7 +982,9 @@ class Builder:
     def related_tiers(self, arche: str, pool: list[Info], kind: str = "archetype") -> list[list[Info]]:
         """For a SMALL archetype (or series: kind='series') that has run out of its own cards, two tiers of related cards (best first):
              1. cards that work WITH it: their text names it in quotes, or their Supports column names it
-             2. clean (stand-alone) monsters of its most common Type and Attribute
+             2. clean (stand-alone) monsters of its most common Type (Dinosaur for Transcendosaurus)
+             3. clean monsters that only share its most common Attribute - used only once tier 2 runs out,
+                so a FIRE Dinosaur archetype doesn't fill up with FIRE Warriors
            Its own cards are never included (they were already used)."""
         members = [c for c in pool if arche in c.facts[kind]]
         mine = {c.name for c in members}
@@ -999,9 +1001,10 @@ class Builder:
         attrs = Counter(t for c in monsters for t in c.facts["attribute"]).most_common(1)      # ...and Attribute
         want_t = {types[0][0]} if types else set()
         want_a = {attrs[0][0]} if attrs else set()
-        tier2 = [c for c in pool if c.name not in mine and c.kind == "Monster" and c.clean and self.rating_ok(c)
-                 and ((c.facts["type"] & want_t) or (c.facts["attribute"] & want_a))]
-        return [tier1, tier2]
+        clean = [c for c in pool if c.name not in mine and c.kind == "Monster" and c.clean and self.rating_ok(c)]
+        tier2 = [c for c in clean if c.facts["type"] & want_t]                          # same Type
+        tier3 = [c for c in clean if not (c.facts["type"] & want_t) and c.facts["attribute"] & want_a]   # same Attribute only
+        return [tier1, tier2, tier3]
 
     # ---- buckets ---------------------------------------------------------
     def theme_bucket(self, label: str, pool: list[Info]) -> list[Info]:
@@ -1610,7 +1613,7 @@ class Builder:
                         break
                     b2 = len(deck.entries)
                     self.fill(deck, tier, pool, short, origin, f"related to {label}", rng,
-                              skip_normals=(i == 1))                                  # tier 2 = outside monsters of its Type / Attribute: no vanilla Normals
+                              skip_normals=(i >= 1))                                  # tiers 2-3 = outside monsters of its Type / Attribute: no vanilla Normals
                     short -= len(deck.entries) - b2
                     got += len(deck.entries) - b2
                 if got:
