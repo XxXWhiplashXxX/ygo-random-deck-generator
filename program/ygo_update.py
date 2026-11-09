@@ -37,7 +37,7 @@ Run on its own:   python ygo_update.py          (checks, asks, updates)
 """
 import hashlib          # the "program stamp": a short fingerprint of the files that build cards.csv
 import json             # the API answers in JSON; the saved version file
-import shutil           # copying files and removing the work folder
+import shutil           # copying files
 import time             # date-stamp for backups
 from pathlib import Path                                    # file paths
 
@@ -87,13 +87,6 @@ def check() -> tuple:                                       # function: what's n
     return str(latest), (str(have) if have is not None else None), changed  # hand back the three answers
 
 
-def _make_writable_and_retry(func, path, _exc_info) -> None:  # function: helper for deleting read-only files on Windows
-    """For shutil.rmtree on Windows: a read-only file (OneDrive often marks them) can't be deleted - make it writable, then try again."""
-    import os, stat                                                        # (only needed here)
-    os.chmod(path, stat.S_IWRITE)                                          # clear the read-only flag
-    func(path)                                                             # delete it again (raises if it is truly locked)
-
-
 def run_update(cards_path: Path, stats_path: Path, log=print) -> bool:  # function: the full card update
     """Run every step on copies inside program/update_work, then swap the new files in.
        `log` is called with one line of text at a time (print, or the offline page's Updater log).
@@ -101,9 +94,7 @@ def run_update(cards_path: Path, stats_path: Path, log=print) -> bool:  # functi
     cards_path, stats_path = Path(cards_path).resolve(), Path(stats_path).resolve()   # full paths: the steps run inside the work folder
     work = P.PROGRAM / "update_work"                                      # everything happens in here
     log(f"--- Preparing the work folder ({work}) ...")      # a heading in the log
-    if work.exists():                                       # an old work folder is still there:
-        shutil.rmtree(work, onerror=_make_writable_and_retry)             # start clean every time (read-only / synced files too)
-    work.mkdir(exist_ok=True)                               # a fresh, empty work folder
+    IO.fresh_folder(work)                                   # a fresh, empty work folder (OneDrive-safe)
 
     def step(title: str, script: str, *args: str) -> None:  # inner function: run one step script
         """Run one script inside the work folder; stop everything if it fails."""
@@ -183,7 +174,7 @@ def run_update(cards_path: Path, stats_path: Path, log=print) -> bool:  # functi
     shutil.copy(work / "series_list.json", P.DATA / "series_list.json")  # (the series list)
     shutil.copy(work / "archetype_list.json", P.DATA / "archetype_list.json")  # (the archetype list)
     update_banlists(work, cards_path, log)                                # 13. (never stops the update)
-    shutil.rmtree(work, ignore_errors=True)                               # the work folder is no longer needed
+    IO.remove_folder(work)                                  # the work folder is no longer needed
     try:                                                                  # remember which version we now have
         latest, _, _ = check()                              # the newest version on YGOPRODeck
         (P.DATA / VERSION_FILE).write_text(json.dumps({"database_version": latest, "program": program_stamp()}))   # the card version AND the program stamp

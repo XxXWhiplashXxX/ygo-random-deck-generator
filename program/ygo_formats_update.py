@@ -19,7 +19,6 @@ Then two step scripts build the files the randomizer reads:
 Nothing here can stop a card update: a download that fails is logged, and the old files stay.
 """
 import json             # every site answers in JSON
-import shutil           # removes the work folder
 from typing import Optional  # 'a number or None' in function headers
 import time             # pauses between requests, and the staples time limit
 import urllib.parse     # puts 'Limited 1' safely into an address
@@ -310,10 +309,9 @@ def update_banlists(work: Path, cards_path: Path, log) -> bool:  # function: dow
 def refresh_banlists(cards_path: Path, log=print) -> bool:  # function: "Refresh Banlists" (no card update)
     """Only the Forbidden Lists (used when the cards are already up to date)."""
     work = P.PROGRAM / "update_work"                        # its own work folder
-    shutil.rmtree(work, ignore_errors=True)                               # start clean
-    work.mkdir()                                            # make it
+    IO.fresh_folder(work)                                   # start clean (OneDrive-safe; a locked leftover is reused)
     done = update_banlists(work, Path(cards_path).resolve(), log)  # download and rebuild
-    shutil.rmtree(work, ignore_errors=True)                 # remove the work folder
+    IO.remove_folder(work)                                  # remove the work folder
     log("=== Forbidden Lists updated." if done else "=== Forbidden Lists not updated.")  # the summary
     return done                                             # hand back whether it worked
 
@@ -328,9 +326,8 @@ def refresh_staples(log=print) -> bool:                     # function: "Check S
          4. refresh today's most popular cards (TCG, OCG, Master Duel)
        Returns True if format_staples.json was rebuilt."""
     work = P.PROGRAM / "staples_work"                                     # its own folder: can't clash with a card update
-    shutil.rmtree(work, ignore_errors=True)                               # start clean
-    sources = work / "banlist_sources"                      # the downloads folder
-    sources.mkdir(parents=True)                             # make it
+    IO.fresh_folder(work)                                   # start clean (OneDrive-safe; a locked leftover is reused)
+    sources = IO.fresh_folder(work / "banlist_sources")     # the downloads folder, empty
     done = False                                            # not done yet
     try:
         log("--- Downloading the formats from Format Library ...")  # tell the user
@@ -343,6 +340,6 @@ def refresh_staples(log=print) -> bool:                     # function: "Check S
         done = True                                         # it worked
     except Exception as e:                                  # failed:
         log(f"    staples not updated ({e}); the old ones are still there")  # note it (the old file stays)
-    shutil.rmtree(work, ignore_errors=True)                 # remove the work folder
+    IO.remove_folder(work)                                  # remove the work folder
     log("=== Staples updated." if done else "=== Staples not updated.")  # the summary
     return done                                             # hand back whether it worked

@@ -16,10 +16,14 @@ of that code, they all use these few functions:
     field_values(page, field)      -> [value, ...]        one field of a card's wiki info box
     download(url)                  -> bytes              any web address (YGOPRODeck, Format Library ...)
     run_script(work, log, title, script, ...)            run one update step script, show its last lines
+    remove_folder(path) / fresh_folder(path)              delete a work folder / start it empty (OneDrive-safe)
 """
 import csv              # CSV files
 import json             # JSON files and the wiki's answers
+import os               # clears a file's read-only flag
 import re               # reads wiki info boxes
+import shutil           # deletes whole folders
+import stat             # the 'writable' flag for os.chmod
 import subprocess       # runs the update step scripts
 import sys              # the Python that is running us (it runs the step scripts too)
 import time             # pauses between wiki requests
@@ -206,3 +210,38 @@ def run_script(work: Path, log, title: str, script: str, *args: str) -> None:
         for line in (result.stderr or "").splitlines()[-8:]:  # its last error lines
             log("    ! " + line)                            # show each one
         raise RuntimeError(f"step failed: {title}")         # stop the update
+
+
+# ---------------------------------------------------------------- work folders
+def remove_folder(path) -> bool:                                          # function: delete a folder and everything in it
+    """Delete a folder, even when OneDrive has marked files in it read-only or is busy syncing them.
+       Returns True if it is gone, False if something in it is still locked (it is simply left behind)."""
+    path = Path(path)                                                     # (accepts a string too)
+    if not path.exists():                                                 # nothing to delete
+        return True                                         # (done)
+
+    def retry(func, item, _error):                                        # called by rmtree for a file it couldn't delete
+        try:
+            os.chmod(item, stat.S_IWRITE)                                 # clear the read-only flag
+            func(item)                                                    # and delete it again
+        except OSError:                                                   # still locked (OneDrive is syncing it):
+            pass                                                          # leave it; rmtree carries on with the rest
+
+    for _ in range(3):                                                    # a few tries: a sync may let go in a moment
+        if sys.version_info >= (3, 12):                                   # Python 3.12 renamed rmtree's error hook
+            shutil.rmtree(path, onexc=retry)                # delete it, calling retry() for any file that resists
+        else:
+            shutil.rmtree(path, onerror=retry)              # (the same, for Python 3.11 and older)
+        if not path.exists():                                             # gone:
+            return True                                     # (done)
+        time.sleep(1)                                                     # wait a second and try again
+    return False                                                          # something is still locked
+
+
+def fresh_folder(path) -> Path:                                           # function: a work folder, emptied and ready
+    """Empty a work folder (or make it). If a locked leftover can't be deleted, the folder is reused as it is:
+       every step writes its own files again, so an old leftover does no harm."""
+    path = Path(path)                                                     # (accepts a string too)
+    remove_folder(path)                                                   # delete what can be deleted
+    path.mkdir(parents=True, exist_ok=True)                               # make it (no error if it is still there)
+    return path                                                           # hand it back
