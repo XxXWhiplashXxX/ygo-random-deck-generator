@@ -1513,6 +1513,14 @@ class Builder:                                              # class: the deck en
         debug = {"size": size, "slots": {"theme1": t1, "theme2": t2, "support1": s1, "support2": s2},  # the debug info: sizes and slots...
                  # ...and the category each slot really used
                  "selected_categories": {**shown, "support1": req.support_1_label, "support2": req.support_2_label}}
+        # A slot with no cards at all (0% share) says so, instead of showing a label it never used. A card-box card
+        # still shows (it is in the deck at 3 copies), and with the Support boxes off (support_on False) both
+        # Support slots are 0 on purpose because automatic support fills them, so those keep their labels.
+        unused = [o for o, n in (("theme1", t1), ("theme2", t2)) if n == 0 and cards[o] is None]   # empty theme slots
+        if req.support_on:                                                            # the Support boxes are in use:
+            unused += [o for o, n in (("support1", s1), ("support2", s2)) if n == 0]  # empty support slots too
+        for o in unused:                                                              # each empty slot
+            debug["selected_categories"][o] = "Not used (0% share)"                   # say so on the page
         if wdebug:                                          # a win-condition theme was set up:
             debug["wincon"] = wdebug                        # note it
         if any(cards.values()):                             # a card box is used:

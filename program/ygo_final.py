@@ -51,6 +51,8 @@ MENTION_POPULAR = 12          # a card named by more cards than this counts as a
 MENTION_CAP = 6               # soft limit on copies added only because cards name each other
 STAPLE_SEARCHER_CHANCE = 0.35  # chance a deck gets ONE card that names a staple it has (a Polymerization searcher: Vyon, King of the Swamp ...)
 SUBSTITUTE_EDGE = 5.0          # ...and a searcher that is also a Fusion substitute the deck can use (King of the Swamp) is 5x as likely
+FILLER_ORIGINS = ("generic", "staple")   # a deck card that is ONLY here as plain filler (Generic share, format staples) ...
+FILLER_NAMERS_OK = {"King of the Swamp"}  # ... never brings in the cards that name it, except these (searches Polymerization)
 REQUIRED_CAP = 8              # soft limit on main-deck copies added only because some card requires them
 ENABLE_BELOW = 5              # an Extra Deck smaller than this gets 'enabler' cards in the main deck (see add_enablers)
 ENABLE_BUDGET = 8             # most main-deck cards add_enablers may swap in, in total
@@ -533,6 +535,13 @@ def apply_mentions(builder: Builder, deck: State, pool: list[Info], rules: Rules
     arche = set().union(*[c.facts["archetype"] for c in deck.unique.values()]) if deck.unique else set()  # every archetype in the deck right now
     score: dict = {}                                                       # name -> [links, Info, reasons]
     staple_namers: dict = {}                                               # name -> (Info, staple it names): Polymerization searchers ...
+    # Deck cards that are only filler: every copy came from the Generic share or the format staples (Pot of Greed,
+    # Brain Control ...). A card that names one of these (Spirit of the Pot of Greed, Brain Controller) has nothing to
+    # do with the theme, so it isn't brought in - except the cards in FILLER_NAMERS_OK.
+    origins: dict = {}                                                     # card name -> every origin its copies have
+    for e in deck.entries:                                                 # each copy in the deck
+        origins.setdefault(e.info.name, set()).add(e.origin)               # note why it is here
+    filler = {n for n, o in origins.items() if o <= set(FILLER_ORIGINS)}  # cards with ONLY filler origins
 
     def consider(card: Info, why: str) -> None:             # inner function: count one link to a candidate card
         if any(counts_as(c, card.name) for c in deck.unique.values()) or card.name not in allowed \
@@ -552,6 +561,8 @@ def apply_mentions(builder: Builder, deck: State, pool: list[Info], rules: Rules
             consider(m, f"named by {c.name}")               # count the link
         namers = mentioned_by.get(c.name, [])               # cards that name this deck card
         for y in namers:                                                   # reverse: cards that name this card
+            if c.name in filler and y.name not in FILLER_NAMERS_OK:        # it names a plain filler card:
+                continue                                                   # not a reason to add it
             # a staple named by dozens of cards (Polymerization...) would drag in random cards, so only
             # follow it when few cards name it, or when the namer shares one of the THEME's archetypes with it
             # (Dark Magician named by Dark Magician cards in a Dark Magician deck - not HEROes naming Polymerization)
