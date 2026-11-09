@@ -25,7 +25,7 @@ import sys              # the Python that is running us (it runs the step script
 import time             # pauses between wiki requests
 import urllib.parse     # builds wiki addresses
 import urllib.request   # downloads from the wiki
-from pathlib import Path
+from pathlib import Path                                    # file paths
 
 
 # ---------------------------------------------------------------- CSV tables
@@ -34,14 +34,14 @@ def read_table(path, encoding: str = "utf-8-sig") -> tuple:
        'utf-8-sig' also reads files that start with the hidden mark Excel adds (our card files do)."""
     with open(path, encoding=encoding, newline="") as f:
         reader = csv.DictReader(f)                     # one dict per row, keyed by the header line
-        return list(reader.fieldnames or []), list(reader)
+        return list(reader.fieldnames or []), list(reader)  # hand back (columns, rows)
 
 
 def write_table(path, columns: list, rows: list, encoding: str = "utf-8-sig") -> None:
     """Write rows (dicts) to a CSV file with these columns, in this order. 'utf-8-sig' adds the hidden mark
        at the start so Excel shows letters like 'α' correctly. Keys a row has that aren't columns are an error."""
     with open(path, "w", encoding=encoding, newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=columns)
+        writer = csv.DictWriter(f, fieldnames=columns)      # a writer that knows the column order
         writer.writeheader()                           # the header line
         writer.writerows(rows)                         # then every row
 
@@ -50,19 +50,19 @@ def write_table(path, columns: list, rows: list, encoding: str = "utf-8-sig") ->
 def read_api(path) -> list:
     """Every card in a YGOPRODeck download (cardinfo.php?misc=yes). Works for the normal file, and for a
        hand-edited one where a Replace turned every '}]},{' between cards into a line break."""
-    text = Path(path).read_text(encoding="utf-8")
-    try:
+    text = Path(path).read_text(encoding="utf-8")           # the whole file as text
+    try:                                                    # (try the normal form first)
         return json.loads(text)["data"]                # the normal download
-    except ValueError:
+    except ValueError:                                      # not valid JSON as it is:
         return json.loads("]},{".join(text.splitlines()))["data"]   # put back the removed ']},{' and try again
 
 
 def read_json(path, default=None):
     """A JSON file's data, or `default` if the file is missing or broken (e.g. a download that was cut off)."""
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return default
+    try:                                                    # (try to read it)
+        return json.loads(Path(path).read_text(encoding="utf-8"))  # the file's data
+    except (OSError, ValueError):                           # missing, or not valid JSON:
+        return default                                      # the fallback
 
 
 def write_json_lines(path, data: dict) -> None:
@@ -71,8 +71,9 @@ def write_json_lines(path, data: dict) -> None:
            "Maxx \\"C\\"": 50,
            "Abyss Dweller": 100
            }"""
+    # one 'key: value' text per entry (letters like α kept as they are)
     lines = [f"{json.dumps(k, ensure_ascii=False)}: {json.dumps(v, ensure_ascii=False)}" for k, v in data.items()]
-    Path(path).write_text("{\n" + ",\n".join(lines) + "\n}\n", encoding="utf-8")
+    Path(path).write_text("{\n" + ",\n".join(lines) + "\n}\n", encoding="utf-8")  # wrap them in { } and save
 
 
 def make_traits(card: dict) -> str:
@@ -85,7 +86,7 @@ def make_traits(card: dict) -> str:
             kind = card["race"] + (" Spell" if card["frameType"] == "spell" else " Trap")  # -> 'Quick-Play Spell'
         else:                                                 # a few API entries leave race blank...
             kind = card["humanReadableCardType"]              # ...so use the full name instead, e.g. 'Normal Spell'
-        return f"Trait = {kind}"
+        return f"Trait = {kind}"                            # the trait text
     typeline = card.get("typeline", [])                       # monsters: e.g. ['Dragon', 'Synchro', 'Tuner', 'Effect']
     parts = [t for t in typeline if t != card["race"]]        # drop the monster Type (Dragon, Machine...)
     has_effect = "Effect" in parts                            # does the card have an effect?
@@ -114,18 +115,18 @@ WIKI_KEEP_DAYS = 30                                                 # a card pag
 def wiki_api(params: dict) -> dict:
     """Send one request to the wiki API and return the answer as Python data, then pause WIKI_WAIT seconds."""
     url = WIKI_API + "?" + urllib.parse.urlencode(dict(params, format="json"))   # always ask for JSON
-    req = urllib.request.Request(url, headers=WIKI_HEADERS)
+    req = urllib.request.Request(url, headers=WIKI_HEADERS)  # the request, with our User-Agent
     with urllib.request.urlopen(req, timeout=60) as resp:          # give up after 60 seconds
-        data = json.load(resp)
-    time.sleep(WIKI_WAIT)
-    return data
+        data = json.load(resp)                              # read the JSON answer
+    time.sleep(WIKI_WAIT)                                   # wait, as Yugipedia asks
+    return data                                             # hand back the answer
 
 
 def wiki_category(category: str) -> list:
     """Every page title in a wiki category, e.g. 'Category:TCG and OCG series' -> ['"C"', '-Eyes Dragon', ...].
        500 titles per request; a longer category takes more requests (the answer says where to carry on)."""
-    titles, more = [], {}
-    while True:
+    titles, more = [], {}                                   # titles found / where to carry on
+    while True:                                             # keep asking until the category is done
         data = wiki_api({"action": "query", "list": "categorymembers", "cmtitle": category, "cmlimit": "500", **more})
         titles += [m["title"] for m in data.get("query", {}).get("categorymembers", [])]   # this request's titles
         if "continue" not in data:                                  # nothing left
@@ -139,16 +140,16 @@ def wiki_pages(titles: list, keep_missing: bool = True) -> dict:
        page; the answer is still keyed by the title that was asked for."""
     data = wiki_api({"action": "query", "prop": "revisions", "rvprop": "content", "rvslots": "main",
                      "titles": "|".join(titles), "redirects": "1"})   # '|' separates the titles
-    q = data.get("query", {})
+    q = data.get("query", {})                               # the query part of the answer
     rename = {s["from"]: s["to"] for s in q.get("normalized", []) + q.get("redirects", [])}   # tidy-ups and redirects
     texts = {p["title"]: p["revisions"][0]["slots"]["main"]["*"]   # final title -> page text
              for p in q.get("pages", {}).values() if "revisions" in p}   # (pages that exist)
-    out = {}
-    for t in titles:
-        final = t
+    out = {}                                                # asked-for title -> text
+    for t in titles:                                        # each title we asked for
+        final = t                                           # start from the title as asked
         while final in rename:                                      # follow every tidy-up / redirect step
             final = rename[final]
-        if final in texts or keep_missing:
+        if final in texts or keep_missing:                  # found, or we keep missing ones:
             out[t] = texts.get(final)                               # None = no such page
     return out
 
@@ -162,9 +163,9 @@ def field_values(text: str, field: str) -> list:
     values = []
     for line in m.group(1).splitlines():                            # one value per line
         line = re.sub(r"<!--.*?-->", "", line.strip().lstrip("*")).strip()   # drop the '*' bullet and hidden comments
-        if line:
-            values.append(line)
-    return values
+        if line:                                            # not empty:
+            values.append(line)                             # keep it
+    return values                                           # hand back the values
 
 
 # ---------------------------------------------------------------- downloads and update steps
@@ -175,18 +176,18 @@ HEADERS = {"User-Agent": f"YGO-deck-randomizer/1.0 (personal project; {CONTACT})
 def download(url: str, timeout: int = 30) -> bytes:
     """Download one address and return the raw bytes. Gives up after `timeout` seconds of no answer
        (30 for the small lists; the big card file passes a longer wait)."""
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    req = urllib.request.Request(url, headers=HEADERS)      # the request, with our User-Agent
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # open the address
+        return resp.read()                                  # the raw bytes
 
 
 def _python() -> tuple:
     """(the python.exe to run the step scripts with, the 'no console window' flag).
-       The window is started with pythonw.exe (no console). Run the steps with the normal python.exe next to it,
+       If we were started with pythonw.exe (no console), run the steps with the normal python.exe next to it,
        so their progress text can be read, and tell Windows not to open a console window for them."""
-    python = Path(sys.executable)
-    if python.name.lower() == "pythonw.exe" and python.with_name("python.exe").is_file():
-        python = python.with_name("python.exe")
+    python = Path(sys.executable)                           # the Python running us now
+    if python.name.lower() == "pythonw.exe" and python.with_name("python.exe").is_file():  # the no-console Python, with a normal one next to it:
+        python = python.with_name("python.exe")             # use the normal one
     return python, getattr(subprocess, "CREATE_NO_WINDOW", 0)            # the flag is Windows only; 0 elsewhere
 
 
@@ -194,14 +195,14 @@ def run_script(work: Path, log, title: str, script: str, *args: str) -> None:
     """Run one step script (from the program folder) inside the work folder, and log its last lines.
        Raises an error if the script crashed, which stops the update."""
     import ygo_paths as P                                                 # (here, so reading files never needs it)
-    python, no_window = _python()
-    log(f"--- {title}")
-    result = subprocess.run([str(python), str(P.PROGRAM / script), *args], cwd=work,
-                            capture_output=True, text=True, encoding="utf-8", errors="replace",
-                            creationflags=no_window)
+    python, no_window = _python()                           # which Python, and the no-window flag
+    log(f"--- {title}")                                     # a heading in the log
+    result = subprocess.run([str(python), str(P.PROGRAM / script), *args], cwd=work,  # run the script in the work folder...
+                            capture_output=True, text=True, encoding="utf-8", errors="replace",  # ...catching its text output...
+                            creationflags=no_window)        # ...without a console window
     for line in (result.stdout or "").splitlines()[-6:]:                  # the script's last few lines of output
-        log("    " + line)
+        log("    " + line)                                  # show each line
     if result.returncode != 0:                                            # the script crashed
-        for line in (result.stderr or "").splitlines()[-8:]:
-            log("    ! " + line)
-        raise RuntimeError(f"step failed: {title}")
+        for line in (result.stderr or "").splitlines()[-8:]:  # its last error lines
+            log("    ! " + line)                            # show each one
+        raise RuntimeError(f"step failed: {title}")         # stop the update

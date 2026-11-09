@@ -2,7 +2,7 @@
 
 A fan-made deck-building challenge that generates randomized **Yu-Gi-Oh! Main and Extra Decks**. Choose themes and support categories, generate a deck, then refine the results into a deck you want to play.
 
-**Play online:** *Public website link coming soon — replace this line with your actual Render URL when the site is live.*
+**Play online:** https://ygo-randomizer.onrender.com
 **Download and run locally:** Use **Code → Download ZIP** on GitHub, or download a packaged version from **Releases** when one is published.
 
 > This is an unofficial fan project, not affiliated with or endorsed by Konami.
@@ -62,7 +62,9 @@ Generating decks works without internet once the card data is present. Card pict
 
 **Updating cards:** click **Check for New Cards** under the settings. If new cards or parser changes are found, click **Update Card Database** and confirm; otherwise you can **Refresh Banlists**. Watch the **Updater log**, then reload the page to see new themes and banlists.
 
-**The old desktop window** (Tkinter) is still included: run `py -3 program/ygo_gui.py`. See **[README.txt](README.txt)** for its controls and a detailed guide to how decks are built and how the updater works.
+**Check Staples** (a separate button) downloads which cards each old format's decks played. The first run can take an hour or more; it is safe to stop and carries on next time.
+
+See **[README.txt](README.txt)** for every setting explained, how decks are built, and how the updater works.
 
 ## Run the website locally (for development)
 
@@ -106,10 +108,10 @@ Use these Web Service settings (or deploy with `render.yaml` as a Blueprint):
 | `web/offline.py` | The offline version: the website plus the card updater (never host this) |
 | `web/start.py` | Render start file |
 | `web/static/` | The page: `index.html`, `app.js`, `style.css`, `offline.js` |
-| `program/` | Deck engine, card-data updater, support parser, old desktop window |
+| `program/` | Deck engine, card-data updater, support parser |
 | `program/data/` | Card database and settings |
 | `forbidden lists/` | Banlist data |
 | `tests/` | Automated tests (`python -m unittest discover -s tests -v`) |
-| `README.txt` | Detailed guide: settings, formats, how decks are built, the updater |
+| `README.txt` | Detailed guide: every setting, formats, how decks are built, the updater, data files |
 
 **Card names and images belong to their respective rights holders.**

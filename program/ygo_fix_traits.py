@@ -34,20 +34,20 @@ skipped = []                                                  # cards the API ca
 
 for row in rows:                                              # every card
     card = api.get(row[id_col]) or api_by_name.get(row["name"].lower())   # its API data (by Id, else by name)
-    text = row.get("card text") or ""
+    text = row.get("card text") or ""                       # its current card text
     if any(d in text for d in DAMAGED):                       # a damaged bullet in the card text:
-        if card is not None and card.get("desc"):
+        if card is not None and card.get("desc"):           # the API has its text:
             row["card text"] = re.sub(r"\s+", " ", card["desc"]).strip()   # take YGOPRODeck's text, one line like every other card (as ygo_add_new_cards.py does)
         else:
-            for d in DAMAGED:
+            for d in DAMAGED:                               # each damaged character
                 text = text.replace(d, "●")                    # not in the API: just put the bullet back
-            row["card text"] = text
-        repaired += 1
+            row["card text"] = text                         # save the fixed text
+        repaired += 1                                       # count it
     if card is None:                                          # not in the API (shouldn't happen)
-        skipped.append(row["name"])
+        skipped.append(row["name"])                         # note it
         continue
     if card["frameType"] not in ("spell", "trap") and not card.get("typeline"):  # monster with no type info
-        skipped.append(row["name"])
+        skipped.append(row["name"])                         # note it
         continue
     new = make_traits(card)                                   # the traits the API says it should have
     if new != row["traits"]:                                  # different from what the file says
@@ -57,13 +57,13 @@ for row in rows:                                              # every card
         removed = ",".join(sorted(t.replace("Trait = ", "") for t in old_set - new_set))  # what we removed
         kinds[f"+[{added}] -[{removed}]"] += 1                # count this kind of change
         row["traits"] = new                                   # make the fix
-        changed += 1
+        changed += 1                                        # count it
 
 # --- Write the new file ---------------------------------------------------
 write_table(OUT_FILE, columns, rows)                          # every card, with fixed traits
 
 print(f"Fixed traits on {changed} cards, repaired {repaired} damaged card texts, wrote {len(rows)} cards to {OUT_FILE}")  # summary
 for kind, n in kinds.most_common():                           # each kind of fix, most common first
-    print(f"  {n:4d}  {kind}")
+    print(f"  {n:4d}  {kind}")                              # '  count  +[added] -[removed]'
 if skipped:                                                   # anything we couldn't check
-    print("Not checked (no API type info):", skipped)
+    print("Not checked (no API type info):", skipped)       # (the list)

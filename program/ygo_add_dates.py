@@ -25,24 +25,24 @@ by_name = {c["name"].lower(): c for c in api_cards}                     # fallba
 columns, rows = read_table(CARDS_FILE)                                  # our card file
 id_col = columns[0]                                                     # 'Card Id'
 for col in NEW_COLUMNS:                                                 # add the columns at the end if missing
-    if col not in columns:
-        columns.append(col)
+    if col not in columns:                                  # not there yet:
+        columns.append(col)                                 # add it
 
-found = 0
-for r in rows:
+found = 0                                                   # cards found in the API
+for r in rows:                                              # each card
     card = by_id.get(r[id_col]) or by_name.get(r["name"].lower())       # this card in the API (by Id, else by name)
     if card is None:                                                    # not in the API: leave the columns blank
-        for col in NEW_COLUMNS:
-            r.setdefault(col, "")
+        for col in NEW_COLUMNS:                             # each new column
+            r.setdefault(col, "")                           # blank
         continue
-    found += 1
+    found += 1                                              # count it
     misc = (card.get("misc_info") or [{}])[0]                           # dates live in the extra info block
     r["tcg date"] = misc.get("tcg_date", "")                           # e.g. '2014-02-07'
-    r["ocg date"] = misc.get("ocg_date", "")
+    r["ocg date"] = misc.get("ocg_date", "")                # (OCG date)
     ids = {str(i["id"]) for i in card.get("card_images", [])} | {str(card["id"])}   # every Id this card has
     ids.discard(r[id_col])                                              # minus the one already in 'Card Id'
-    r["other ids"] = " ".join(sorted(ids))
+    r["other ids"] = " ".join(sorted(ids))                  # the other Ids, space-separated
     r["formats"] = "; ".join(misc.get("formats", []))                  # e.g. 'TCG; OCG; Master Duel; Edison'
 
-write_table(CARDS_FILE, columns, rows)
-print(f"Dates, Ids and formats added for {found} of {len(rows)} cards")
+write_table(CARDS_FILE, columns, rows)                      # save the cards
+print(f"Dates, Ids and formats added for {found} of {len(rows)} cards")  # the summary

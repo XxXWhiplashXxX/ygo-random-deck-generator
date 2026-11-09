@@ -25,7 +25,7 @@ for row in stats_rows:                                        # look at every la
 spelling = {}                                                 # lowercase -> API spelling, e.g. 'gmx' -> 'GMX'
 for card in read_api(API_FILE):                               # every card YGOPRODeck has
     if card.get("archetype"):                                 # that has an archetype
-        spelling[card["archetype"].lower()] = card["archetype"]
+        spelling[card["archetype"].lower()] = card["archetype"]  # remember its spelling
 
 # --- Archetypes the new cards use -----------------------------------------
 used = set()                                                  # every archetype on a new card (lowercase)
@@ -42,11 +42,11 @@ new_rows = []                                                 # rows to add
 for a in missing:                                             # one row per missing archetype
     row = dict(example)                                       # same TRUE/FALSE values and note
     row["Label"] = f"Archetype = {spelling.get(a, a.title())}"  # API spelling (or Title Case if the API has none)
-    new_rows.append(row)
+    new_rows.append(row)                                    # add it
 
 # --- Write Stats_new.csv --------------------------------------------------
 write_table(OUT_FILE, columns, stats_rows + new_rows)        # every old row unchanged, the new archetypes at the end
 
 print(f"Added {len(new_rows)} archetypes:")                   # report what was added
-for r in new_rows:
-    print("  ", r["Label"])
+for r in new_rows:                                          # each new row
+    print("  ", r["Label"])                                 # print its label

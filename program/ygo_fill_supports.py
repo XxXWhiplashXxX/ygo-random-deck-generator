@@ -37,6 +37,7 @@ Map of this file
 Short names used everywhere:  ss = strictSupports, gs = generalSupports, sb = strictSupportedBy, gb = generalSupportedBy
 """
 import csv, io, re, argparse, collections, functools                      # standard library only, nothing to install
+from pathlib import Path                                                  # Path(...).read_bytes() reads a file and closes it
 
 # ---------------- configuration: which files to read and write ----------------
 # Nothing here runs when another file imports this one: the command line is only read by main(), and the
@@ -54,7 +55,7 @@ def parse_args(argv=None):   # parse_args(): the four file names from the comman
 # ================================================================
 
 # ---------------- labels ----------------
-def norm(s): return re.sub(r"\s+", "", s.lower())   # norm(): lowercase and delete all spaces, so "Level = 4" and "level=4" compare equal
+def squash(s): return re.sub(r"\s+", "", s.lower())   # squash(): lowercase and delete ALL spaces, so "Level = 4" and "level=4" compare equal (not the same as ygo_data.norm, which keeps one space)
 LABELS = {}   # LABELS maps normalised label -> label written exactly as it must appear in the output (filled by setup())
 STAT_VALUES = {}   # for ATK and DEF: a sorted list of every number that has a label (filled by setup())
 
@@ -64,7 +65,7 @@ def load_trait_labels(path):   # load_trait_labels(): fill LABELS and STAT_VALUE
         for r in csv.DictReader(f):   # loop over every row of the label CSV
             lab = r["Label"].strip()   # the label text of this row, without stray spaces
             tidy = re.sub(r"\s+", " ", re.sub(r"\s*(=|!=|<=|>=)\s*", r" \1 ", lab))   # put exactly one space around =, !=, <=, >= and collapse repeated spaces
-            LABELS[norm(lab)] = ("Trait" + tidy[5:] if tidy.lower().startswith("trait ") else ("DEF" + tidy[3:] if tidy.lower().startswith("def ") else tidy))   # force the spelling "Trait ..." / "DEF ..." (the CSV mixes cases); every other label is kept as tidied
+            LABELS[squash(lab)] = ("Trait" + tidy[5:] if tidy.lower().startswith("trait ") else ("DEF" + tidy[3:] if tidy.lower().startswith("def ") else tidy))   # force the spelling "Trait ..." / "DEF ..." (the CSV mixes cases); every other label is kept as tidied
     STAT_VALUES.update({k: sorted(int(m.group(1)) for lab in LABELS.values() for m in [re.match(k + r" = (\d+)$", lab)] if m)   # ("ATK = 1000" -> 1000)
                         for k in ("ATK", "DEF")})   # build that list once for each of the two stats
 
@@ -79,7 +80,7 @@ def stat_label(stat, num, op):   # stat_label(): find a label for "ATK 1800 or l
     return find_label(stat, str(ok[0]), op) if ok else None   # take the smallest of them, or nothing if none exist
 
 def find_label(kind, value, op="="):   # find_label(): look up "<kind> = <value>" and swap the operator if another one is wanted
-    base = LABELS.get(norm(kind + " = " + value))   # labels only exist with "=", so look that form up first
+    base = LABELS.get(squash(kind + " = " + value))   # labels only exist with "=", so look that form up first
     if base is None: return None   # no such label in the CSV
     return base if op == "=" else base.replace(" = ", " " + op + " ", 1)   # for <=, >=, != turn the first " = " into the wanted operator
 
@@ -418,7 +419,7 @@ TARGET_RE = re.compile(r"\b(?:target(?:ing)?|select(?:ing)?)\b.*$", re.I)   # TA
 
 # ---- load the mechanic labels and which of the four columns each may go in ----
 def _read(path):   # function that reads a CSV file into a list of row dicts
-    raw = open(path, "rb").read()   # read the whole file as raw bytes so the encoding can be chosen below
+    raw = Path(path).read_bytes()   # read the whole file as raw bytes so the encoding can be chosen below (read_bytes closes the file again)
     for enc in ("utf-8-sig", "cp1252"):   # try the encodings in this order (plain UTF-8 first, then Windows-1252)
         try: return list(csv.DictReader(io.StringIO(raw.decode(enc), newline="")))   # decode, parse the CSV and return the rows if the decoding worked
         except UnicodeDecodeError: pass   # wrong encoding -> ignore the error and try the next one
@@ -428,12 +429,12 @@ def load_mechanics(path):   # load_mechanics(): fill MECH from the mechanics CSV
     MECH.clear()   # empty it first (the same dict is kept)
     for r in _read(path):   # go through every row of the mechanics CSV
         lab = re.sub(r"\s+", " ", re.sub(r"\s*=\s*", " = ", r["Label"].strip()))   # tidy the label: single spaces, and exactly one space on each side of '='
-        MECH[norm(lab)] = (lab, {k: r[k].strip().upper() == "TRUE" for k in   # store the label plus a dict of column flags (continues on the next line)
+        MECH[squash(lab)] = (lab, {k: r[k].strip().upper() == "TRUE" for k in   # store the label plus a dict of column flags (continues on the next line)
                                  ("strictSupports", "generalSupports", "strictSupportedBy", "generalSupportedBy")})   # the four column names; a cell saying TRUE means that column is allowed
 
 def mech_label(name, column):   # function that checks a label against the column flags
     # return the label text if it exists AND is allowed in this column, else None
-    hit = MECH.get(norm(name))   # look up the label by its normalised name (no case, no spaces)
+    hit = MECH.get(squash(name))   # look up the label by its squashed name (no case, no spaces)
     return hit[0] if hit and hit[1][column] else None   # give back the label text only if it exists and this column is allowed, otherwise None
 
 # ---- small helpers shared by all the matchers below ----

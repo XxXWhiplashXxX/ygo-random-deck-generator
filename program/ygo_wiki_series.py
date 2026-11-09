@@ -26,23 +26,23 @@ fresh_since = (date.today() - timedelta(days=WIKI_KEEP_DAYS)).isoformat()   # re
 
 # --- What we already have, and which of it is still fresh ----------------------
 kept, stale = [], {}                                             # rows read in the last 30 days / older rows (by name)
-if os.path.exists(OUT_FILE):
-    for row in read_table(OUT_FILE, encoding="utf-8")[1]:
+if os.path.exists(OUT_FILE):                                # a notes file from an earlier run:
+    for row in read_table(OUT_FILE, encoding="utf-8")[1]:   # each of its rows
         if (row.get("read_on") or "") >= fresh_since:            # read recently: keep it as it is
-            kept.append(row)
+            kept.append(row)                                # keep it
         else:                                                    # no date (an older file) or too old: read it again ...
             stale[row["name"]] = row                             # ... but keep the old result in case the reading stops
 done = {row["name"] for row in kept}                             # card names that don't need reading
 
 # --- The card names still to read ---------------------------------------------
-names = [row["name"] for row in read_table(CARDS_FILE)[1] if row["name"] not in done]
-print(f"{len(names)} cards to read ({len(done)} read in the last {WIKI_KEEP_DAYS} days), "
+names = [row["name"] for row in read_table(CARDS_FILE)[1] if row["name"] not in done]  # every card not read recently
+print(f"{len(names)} cards to read ({len(done)} read in the last {WIKI_KEEP_DAYS} days), "  # tell the user how much is left...
       f"{-(-len(names) // WIKI_BATCH)} requests.")              # (-(-a // b) rounds the division up)
 
 # --- Write the fresh rows back, then read the rest, 50 at a time ---------------
 with open(OUT_FILE, "w", encoding="utf-8", newline="") as f:     # start the file again: fresh rows first
-    writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
-    writer.writeheader()
+    writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")  # a CSV writer for our columns
+    writer.writeheader()                                    # the header
     writer.writerows(kept)                                       # what is still fresh
     f.flush()                                                    # (on disk now, in case the run is stopped)
     for start in range(0, len(names), WIKI_BATCH):               # 0, 50, 100, ...
@@ -53,18 +53,18 @@ with open(OUT_FILE, "w", encoding="utf-8", newline="") as f:     # start the fil
             print("Request failed:", e, "- run the script again to continue.")
             writer.writerows(stale[n] for n in names[start:] if n in stale)   # the cards not read yet keep their old result (and old date)
             break
-        for name in batch:
-            text = pages.get(name)
+        for name in batch:                                  # each card in the batch
+            text = pages.get(name)                          # its page text (None = no page)
             if text is None:                                     # no Yugipedia page under this name
-                writer.writerow({"name": name, "status": "no page", "read_on": today})
+                writer.writerow({"name": name, "status": "no page", "read_on": today})  # note it
                 continue
-            writer.writerow({"name": name,
+            writer.writerow({"name": name,                  # its row:
                              "archseries": " | ".join(field_values(text, "archseries")),                # what the card belongs to
                              "related_to_archseries": " | ".join(field_values(text, "related_to_archseries")),   # what it's only related to
                              "supports_archetypes": " | ".join(field_values(text, "supports_archetypes")),       # archetypes it supports (hand-written by the wiki's editors)
                              "supports": " | ".join(field_values(text, "supports")),                             # other things it supports (Types, Attributes ...)
-                             "status": "ok", "read_on": today})
+                             "status": "ok", "read_on": today})  # (read today)
         f.flush()                                                # save to disk after every batch
-        print(f"{min(start + WIKI_BATCH, len(names))}/{len(names)} cards")
+        print(f"{min(start + WIKI_BATCH, len(names))}/{len(names)} cards")  # progress line
 
-print(f"Done. Results are in {OUT_FILE}")
+print(f"Done. Results are in {OUT_FILE}")                   # the summary

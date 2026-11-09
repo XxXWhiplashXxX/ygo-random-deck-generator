@@ -15,33 +15,33 @@ import sys   # the file name typed after the script name
 
 from ygo_io import read_table, write_table   # shared file reading / writing
 
-CARDS_FILE = sys.argv[1] if len(sys.argv) > 1 else "cards.csv"
+CARDS_FILE = sys.argv[1] if len(sys.argv) > 1 else "cards.csv"  # the card file to change (in place)
 
 # The ways card text says "this can stand in for a Fusion Material":
 #   old cards:   'You can substitute this card for any 1 Fusion Material Monster' (also 'Fusion-Material')
 #   newer cards: 'can be used as a substitute for any 1 Fusion Material whose name is specifically listed'
 #                'this face-up card can be used as a substitute for 1 material mentioned by name'
-SUBSTITUTE = re.compile(r"substitute (this card )?for (any )?(1|one) Fusion[- ]Material"
-                        r"|as a substitute for (any )?(1|one) (Fusion )?material", re.I)
+SUBSTITUTE = re.compile(r"substitute (this card )?for (any )?(1|one) Fusion[- ]Material"  # 'substitute this card for any 1 Fusion Material' ...
+                        r"|as a substitute for (any )?(1|one) (Fusion )?material", re.I)  # ...or 'as a substitute for 1 material'
 ONLY_FOR = re.compile(r'Fusion Summon an? "([^"]+)" monster', re.I)    # an archetype limit: 'Fusion Summon a "HERO" monster'
 FUSION = "Trait = Fusion Monster"                                       # the label a Fusion support card points at
 
-columns, rows = read_table(CARDS_FILE)
+columns, rows = read_table(CARDS_FILE)                      # read the cards
 
-changed = []
-for r in rows:
-    text = r.get("card text") or ""
+changed = []                                                # 'Name: label' for each card changed
+for r in rows:                                              # each card
+    text = r.get("card text") or ""                         # its text
     if not SUBSTITUTE.search(text):
         continue                                                        # not a Fusion substitute
-    strict = (r.get("strictSupports") or "").strip()
-    if FUSION.lower() in strict.lower():
+    strict = (r.get("strictSupports") or "").strip()        # its strictSupports so far
+    if FUSION.lower() in strict.lower():                    # it already supports Fusions:
         continue                                                        # already Fusion support
     limit = ONLY_FOR.search(text)                                       # only for one archetype's Fusions?
-    label = f"(Archetype = {limit.group(1)} && {FUSION})" if limit else FUSION
+    label = f"(Archetype = {limit.group(1)} && {FUSION})" if limit else FUSION  # Fusion support (only that archetype's, if limited)
     r["strictSupports"] = f"{strict} || {label}" if strict else label   # 'A || B' = supports A or B
-    changed.append(f"{r['name']}: {label}")
+    changed.append(f"{r['name']}: {label}")                 # note it
 
-write_table(CARDS_FILE, columns, rows)
-print(f"{len(changed)} Fusion substitutes now count as Fusion support")
-for line in changed:
-    print("   " + line)
+write_table(CARDS_FILE, columns, rows)                      # save the cards
+print(f"{len(changed)} Fusion substitutes now count as Fusion support")  # the summary
+for line in changed:                                        # each card changed
+    print("   " + line)                                     # print it
