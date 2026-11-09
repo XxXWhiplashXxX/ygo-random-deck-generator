@@ -2,7 +2,7 @@
 
 A fan-made deck-building challenge that generates randomized **Yu-Gi-Oh! Main and Extra Decks**. Choose themes and support categories, generate a deck, then refine the results into a deck you want to play.
 
-**Play online:** *Public website link coming soon — replace this line with your actual Render URL when the site is live.*
+**Play online:** https://ygo-randomizer.onrender.com
 **Download and run locally:** Use **Code → Download ZIP** on GitHub, or download a packaged version from **Releases** when one is published.
 
 > This is an unofficial fan project, not affiliated with or endorsed by Konami.
